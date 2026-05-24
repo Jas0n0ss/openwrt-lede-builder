@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: ${{ fromJSON(github.event.inputs.device == 'all' && '["r2s","cr660x","x86"]' || format('["{0}"]', github.event.inputs.device)) }}
+        device: ${{ fromJSON((github.event.inputs.device || 'all') == 'all' && '["r2s","cr660x","x86"]' || format('["{0}"]', github.event.inputs.device || 'all')) }}
     
     steps:
     - name: Checkout builder
@@ -62,7 +62,15 @@ jobs:
       run: |
         cd lede
         COMMON_CONFIG="../configs/common.config"
-        DEVICE_CONFIG="../configs/${{ matrix.device }}.config"
+        DEVICE="${{ matrix.device }}"
+        DEVICE_CONFIG="../configs/${DEVICE}.config"
+
+        if [ -z "$DEVICE" ] || [ "$DEVICE" = "null" ]; then
+          echo "❌ Error: build matrix device is empty"
+          echo "Available device configs:"
+          ls -la ../configs/*.config 2>/dev/null || echo "  (none found)"
+          exit 1
+        fi
         
         # 检查通用配置
         if [ ! -f "$COMMON_CONFIG" ]; then
