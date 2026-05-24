@@ -61,21 +61,30 @@ jobs:
     - name: Configure device
       run: |
         cd lede
+        COMMON_CONFIG="../configs/common.config"
+        DEVICE_CONFIG="../configs/${{ matrix.device }}.config"
+        
         # 检查通用配置
-        if [ -f "../configs/common.config" ]; then
-          cat ../configs/common.config > .config
-        else
+        if [ ! -f "$COMMON_CONFIG" ]; then
+          echo "⚠️  Warning: Common config not found at $COMMON_CONFIG, using empty base"
           echo "# Base config" > .config
+        else
+          echo "✓ Loading common config from $COMMON_CONFIG"
+          cat "$COMMON_CONFIG" > .config
         fi
         
         # 添加设备特定配置
-        if [ -f "../configs/${{ matrix.device }}.config" ]; then
-          cat ../configs/${{ matrix.device }}.config >> .config
-        else
-          echo "错误: 设备配置文件 ${{ matrix.device }}.config 不存在"
+        if [ ! -f "$DEVICE_CONFIG" ]; then
+          echo "❌ Error: Device config not found at $DEVICE_CONFIG"
+          echo "Available device configs:"
+          ls -la ../configs/*.config 2>/dev/null || echo "  (none found)"
           exit 1
         fi
         
+        echo "✓ Loading device config from $DEVICE_CONFIG"
+        cat "$DEVICE_CONFIG" >> .config
+        
+        echo "✓ Running make defconfig..."
         make defconfig
     
     - name: Validate config
