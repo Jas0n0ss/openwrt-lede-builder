@@ -1,4 +1,8 @@
 name: Build OpenWrt
+env:
+  MAKEFLAGS: -j$(nproc)           # 使用所有 CPU 核心
+  FORCE_UNSAFE_CONFIGURE: 1       # 允许 root 编译
+  CCACHE_DIR: /home/runner/.ccache
 
 on:
   workflow_dispatch:
@@ -156,6 +160,13 @@ jobs:
         
         # ===== LEDE 自带的插件 =====
         echo "CONFIG_PACKAGE_luci-app-arpbind=y" >> .config
+
+        # 使用所有 CPU 核心
+        echo 'CONFIG_CCACHE=y' >> .config
+        echo 'CONFIG_USE_CCACHE=y' >> .config
+        # 启用并行编译
+        echo 'CONFIG_MAKE_JOBSERVER=y' >> .config
+        echo 'CONFIG_MAKE_J=$(nproc)' >> .config
         
         # ===== 设备特定配置 =====
         case "${{ matrix.device }}" in

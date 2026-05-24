@@ -1,0 +1,26 @@
+name: Build on Self-hosted Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # 使用自托管的 Runner（需要自己配置）
+    runs-on: [self-hosted, linux, x64]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Build
+      run: |
+        # 直接在强大的本地机器上编译
+        # 编译时间可以缩短到 20-40 分钟
+        docker run --rm \
+          -v ${{ github.workspace }}:/workspace \
+          -v /home/runner/ccache:/ccache \
+          ghcr.io/${{ github.repository_owner }}/openwrt-builder:latest \
+          bash -c "
+            cd /workspace/lede && \
+            make -j$(nproc) V=s
+          "
