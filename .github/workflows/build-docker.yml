@@ -3,7 +3,11 @@ name: Build Docker Image
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 1 * *'  # 每月1号更新
+    - cron: '0 0 1 * *'
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   docker:
