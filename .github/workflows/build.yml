@@ -14,7 +14,6 @@ on:
   push:
     branches: [main]
 
-# 设置权限
 permissions:
   contents: write
   actions: read
@@ -62,12 +61,11 @@ jobs:
     - name: Configure device
       run: |
         cd lede
-        # 检查配置文件是否存在
+        # 检查通用配置
         if [ -f "../configs/common.config" ]; then
           cat ../configs/common.config > .config
         else
-          echo "警告: common.config 不存在，使用默认配置"
-          echo "CONFIG_TARGET_${{ matrix.device }}=y" > .config
+          echo "# Base config" > .config
         fi
         
         # 添加设备特定配置
@@ -78,12 +76,17 @@ jobs:
           exit 1
         fi
         
-        # 显示配置内容用于调试
-        echo "=== 当前配置 ==="
-        cat .config
-        echo "=== 配置结束 ==="
-        
         make defconfig
+    
+    - name: Validate config
+      run: |
+        cd lede
+        # 检查关键配置
+        if ! grep -q "CONFIG_TARGET_" .config; then
+          echo "错误: 配置中没有找到CONFIG_TARGET设置"
+          exit 1
+        fi
+        echo "配置验证通过"
     
     - name: Update feeds
       run: |
@@ -94,11 +97,9 @@ jobs:
     - name: Add plugins
       run: |
         cd lede
-        # Passwall
+        # 克隆插件
         git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall.git package/passwall
         git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git package/passwall-packages
-        
-        # 其他插件
         git clone --depth 1 https://github.com/sbwml/luci-app-mosdns.git package/mosdns
         git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git package/turboacc
         git clone --depth 1 https://github.com/rufengsuixing/luci-app-adbyby-plus.git package/adbyby
@@ -110,32 +111,53 @@ jobs:
         git clone --depth 1 https://github.com/immortalwrt/luci-app-watchcat.git package/watchcat
         git clone --depth 1 https://github.com/thinktip/luci-theme-aurora.git package/aurora
         
-        # 更新 feeds 以包含新插件
-        ./scripts/feeds update -a
+        # 重新安装所有feeds
         ./scripts/feeds install -a
     
     - name: Customize
       run: |
         cd lede
+        
         # 修改默认IP
         sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
         
-        # 复制自定义文件（如果存在）
-        if [ -d "../files" ]; then
-          cp -r ../files/* ./
+        # 复制自定义文件
+        if [ -d "../files" ] && [ "$(ls -A ../files 2>/dev/null)" ]; then
+          cp -rf ../files/* ./
         fi
         
-        # 执行优化脚本（如果存在）
-        if [ -f "../scripts/optimize.sh" ]; then
-          bash ../scripts/optimize.sh ${{ matrix.device }}
-        else
-          # 内置优化配置
-          echo "CONFIG_PACKAGE_luci=y" >> .config
-          echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-          echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
-        fi
+        # 添加PassWall依赖配置
+        echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-passwall_Including_Hysteria=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-passwall_Including_Tuic=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-passwall_Including_SSR=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-passwall_Including_V2ray=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-passwall_Including_Xray=y" >> .config
         
-        # 重新生成配置
+        # 设备特定内核配置
+        case "${{ matrix.device }}" in
+          r2s)
+            echo "CONFIG_PACKAGE_kmod-usb-net-rtl8152=y" >> .config
+            echo "CONFIG_PACKAGE_kmod-r8168=y" >> .config
+            ;;
+          cr660x)
+            echo "CONFIG_PACKAGE_kmod-mt7915e=y" >> .config
+            echo "CONFIG_PACKAGE_wpad-openssl=y" >> .config
+            ;;
+          x86)
+            echo "CONFIG_PACKAGE_kmod-vmxnet3=y" >> .config
+            echo "CONFIG_PACKAGE_kmod-igb=y" >> .config
+            echo "CONFIG_PACKAGE_kmod-ixgbe=y" >> .config
+            echo "CONFIG_PACKAGE_open-vm-tools=y" >> .config
+            ;;
+        esac
+        
+        # 通用优化配置
+        echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
+        echo "CONFIG_USE_MUSL=y" >> .config
+        echo "CONFIG_USE_SSTRIP=y" >> .config
+        
+        # 再次生成配置
         make defconfig
     
     - name: Build
@@ -151,7 +173,7 @@ jobs:
         cd lede
         mkdir -p ../release/${{ matrix.device }}
         # 查找并复制固件
-        find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.ext4.gz" -o -name "*.squashfs" \) -exec cp -v {} ../release/${{ matrix.device }} \;
+        find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.ext4.gz" -o -name "*.squashfs" -o -name "*.img" \) -exec cp -v {} ../release/${{ matrix.device }} \;
         
         # 复制配置文件
         cp .config ../release/${{ matrix.device }}/config.build.txt
@@ -171,36 +193,42 @@ jobs:
         path: release/${{ matrix.device }}
         retention-days: 7
     
+    - name: Create Release Body
+      id: release_body
+      run: |
+        echo "body<<EOF" >> $GITHUB_OUTPUT
+        echo "## 固件信息" >> $GITHUB_OUTPUT
+        echo "- **编译时间**: $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+        echo "- **管理地址**: http://10.10.10.1" >> $GITHUB_OUTPUT
+        echo "- **用户名**: root" >> $GITHUB_OUTPUT
+        echo "- **密码**: password" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "## 设备" >> $GITHUB_OUTPUT
+        echo "- **${{ matrix.device }}**" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "## 包含插件" >> $GITHUB_OUTPUT
+        echo "- PassWall (科学上网)" >> $GITHUB_OUTPUT
+        echo "- Adbyby Plus (广告过滤)" >> $GITHUB_OUTPUT
+        echo "- MosDNS (DNS转发)" >> $GITHUB_OUTPUT
+        echo "- TurboACC (网络加速)" >> $GITHUB_OUTPUT
+        echo "- TTYD (网页终端)" >> $GITHUB_OUTPUT
+        echo "- KMS (激活服务)" >> $GITHUB_OUTPUT
+        echo "- Watchcat (看门狗)" >> $GITHUB_OUTPUT
+        echo "- Aurora主题" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "## 下载说明" >> $GITHUB_OUTPUT
+        echo "- R2S: 写入 TF 卡" >> $GITHUB_OUTPUT
+        echo "- CR660x: 通过 breed 刷入" >> $GITHUB_OUTPUT
+        echo "- X86: 写入硬盘或虚拟机直接使用" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: nightly-${{ github.run_number }}
         name: OpenWrt Build ${{ github.run_number }}
-        body: |
-          ## 固件信息
-          - **编译时间**: $(date '+%Y-%m-%d %H:%M:%S')
-          - **管理地址**: http://10.10.10.1
-          - **用户名**: root
-          - **密码**: password
-          
-          ## 设备: ${{ matrix.device }}
-          
-          ## 包含插件
-          - PassWall (科学上网)
-          - Adbyby Plus (广告过滤)
-          - MosDNS (DNS转发)
-          - TurboACC (网络加速)
-          - TTYD (网页终端)
-          - KMS (激活服务)
-          - Watchcat (看门狗)
-          - Aurora主题
-          
-          ## 下载说明
-          - 解压后使用
-          - R2S: 写入 TF 卡
-          - CR660x: 通过 breed 刷入
-          - X86: 写入硬盘或虚拟机直接使用
+        body: ${{ steps.release_body.outputs.body }}
         files: |
           release/${{ matrix.device }}/*
       env:
