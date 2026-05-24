@@ -111,55 +111,31 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
     
-    - name: Add plugins (Corrected Passwall Integration)
+    - name: Add plugins
       run: |
         cd lede
         
-        # ===== 1. 按照 Passwall 官方推荐的方法一添加源 =====
-        # 在 feeds.conf.default 文件顶部插入两行核心源
-        # 注意：官方源地址就是 https://github.com/Openwrt-Passwall/openwrt-passwall.git
+        # ===== 1. 添加 Passwall 源（官方方法） =====
         echo 'src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' > feeds.conf.default.new
         echo 'src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' >> feeds.conf.default.new
-        # 保留原有的 feeds 配置
+        echo 'src-git kenzo https://github.com/kenzok8/openwrt-packages.git' >> feeds.conf.default.new
+        echo 'src-git small https://github.com/kenzok8/small.git' >> feeds.conf.default.new
+
         cat feeds.conf.default >> feeds.conf.default.new
         mv feeds.conf.default.new feeds.conf.default
-        
-        # ===== 2. 添加其他自定义插件 (非 Passwall 官方源的) =====
+        # ===== 2. 克隆其他插件 =====
         git clone --depth 1 https://github.com/sbwml/luci-app-mosdns.git package/mosdns
         git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git package/turboacc
-        git clone --depth 1 https://github.com/rufengsuixing/luci-app-adbyby-plus.git package/adbyby
-        git clone --depth 1 https://github.com/zzsj0928/luci-app-ap-modem.git package/modem
-        git clone --depth 1 https://github.com/immortalwrt/luci-app-arpbind.git package/arpbind
-        git clone --depth 1 https://github.com/kenzok78/luci-app-broadbandacc.git package/bandacc
         git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd
-        git clone --depth 1 https://github.com/ximiTech/luci-app-vlmcsd.git package/vlmcsd
         git clone --depth 1 https://github.com/immortalwrt/luci-app-watchcat.git package/watchcat
-        git clone --depth 1 https://github.com/thinktip/luci-theme-aurora.git package/aurora
+        git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora
         
-        # ===== 3. 更新并安装所有 feeds (关键步骤) =====
-        # 这会自动处理 Passwall 及其所有复杂依赖，避免手动克隆错误
+        # ===== 3. 注意：以下插件 LEDE 自带，无需克隆 =====
+        # - luci-app-arpbind（LEDE 自带）
+        
+        # ===== 4. 更新 feeds =====
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-    
-    # - name: Add plugins
-    #   run: |
-    #     cd lede
-    #     # 克隆插件
-    #     git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall.git package/passwall
-    #     git clone --depth 1 https://github.com/xiaorouji/openwrt-passwall-packages.git package/passwall-packages
-    #     git clone --depth 1 https://github.com/sbwml/luci-app-mosdns.git package/mosdns
-    #     git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git package/turboacc
-    #     git clone --depth 1 https://github.com/rufengsuixing/luci-app-adbyby-plus.git package/adbyby
-    #     git clone --depth 1 https://github.com/zzsj0928/luci-app-ap-modem.git package/modem
-    #     git clone --depth 1 https://github.com/immortalwrt/luci-app-arpbind.git package/arpbind
-    #     git clone --depth 1 https://github.com/kenzok78/luci-app-broadbandacc.git package/bandacc
-    #     git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd
-    #     git clone --depth 1 https://github.com/ximiTech/luci-app-vlmcsd.git package/vlmcsd
-    #     git clone --depth 1 https://github.com/immortalwrt/luci-app-watchcat.git package/watchcat
-    #     git clone --depth 1 https://github.com/thinktip/luci-theme-aurora.git package/aurora
-        
-    #     # 重新安装所有feeds
-    #     ./scripts/feeds install -a
     
     - name: Customize
       run: |
@@ -168,20 +144,24 @@ jobs:
         # 修改默认IP
         sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
         
-        # 复制自定义文件
-        if [ -d "../files" ] && [ "$(ls -A ../files 2>/dev/null)" ]; then
-          cp -rf ../files/* ./
-        fi
-        
-        # 添加PassWall依赖配置
+        # ===== PassWall 配置 =====
         echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-passwall_Including_Hysteria=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-passwall_Including_Tuic=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-passwall_Including_SSR=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-passwall_Including_V2ray=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-passwall_Including_Xray=y" >> .config
         
-        # 设备特定内核配置
+        # ===== 额外克隆的插件 =====
+        echo "CONFIG_PACKAGE_luci-app-broadbandacc=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-watchcat=y" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-aurora=y" >> .config
+        
+        # ===== LEDE 自带的插件 =====
+        echo "CONFIG_PACKAGE_luci-app-arpbind=y" >> .config
+        
+        # ===== 设备特定配置 =====
         case "${{ matrix.device }}" in
           r2s)
             echo "CONFIG_PACKAGE_kmod-usb-net-rtl8152=y" >> .config
@@ -199,12 +179,6 @@ jobs:
             ;;
         esac
         
-        # 通用优化配置
-        echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
-        echo "CONFIG_USE_MUSL=y" >> .config
-        echo "CONFIG_USE_SSTRIP=y" >> .config
-        
-        # 再次生成配置
         make defconfig
     
     - name: Build
