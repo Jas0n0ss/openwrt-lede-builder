@@ -14,6 +14,11 @@ on:
   push:
     branches: [main]
 
+# 设置权限
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -23,7 +28,8 @@ jobs:
         device: ${{ fromJSON(github.event.inputs.device == 'all' && '["r2s","cr660x","x86"]' || format('["{0}"]', github.event.inputs.device)) }}
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout builder
+      uses: actions/checkout@v4
     
     - name: Checkout LEDE
       uses: actions/checkout@v4
@@ -52,13 +58,31 @@ jobs:
           gettext git libssl-dev libelf-dev python3-distutils python3-dev \
           rsync unzip zlib1g-dev file wget subversion patch upx-ucl \
           ccache ecj fastjar jarwrapper java-propose-classpath libz-dev
-        echo "CONFIG_CCACHE=y" >> lede/.config
     
     - name: Configure device
       run: |
         cd lede
-        cat ../configs/common.config > .config
-        cat ../configs/${{ matrix.device }}.config >> .config
+        # 检查配置文件是否存在
+        if [ -f "../configs/common.config" ]; then
+          cat ../configs/common.config > .config
+        else
+          echo "警告: common.config 不存在，使用默认配置"
+          echo "CONFIG_TARGET_${{ matrix.device }}=y" > .config
+        fi
+        
+        # 添加设备特定配置
+        if [ -f "../configs/${{ matrix.device }}.config" ]; then
+          cat ../configs/${{ matrix.device }}.config >> .config
+        else
+          echo "错误: 设备配置文件 ${{ matrix.device }}.config 不存在"
+          exit 1
+        fi
+        
+        # 显示配置内容用于调试
+        echo "=== 当前配置 ==="
+        cat .config
+        echo "=== 配置结束 ==="
+        
         make defconfig
     
     - name: Update feeds
@@ -85,6 +109,10 @@ jobs:
         git clone --depth 1 https://github.com/ximiTech/luci-app-vlmcsd.git package/vlmcsd
         git clone --depth 1 https://github.com/immortalwrt/luci-app-watchcat.git package/watchcat
         git clone --depth 1 https://github.com/thinktip/luci-theme-aurora.git package/aurora
+        
+        # 更新 feeds 以包含新插件
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
     
     - name: Customize
       run: |
@@ -92,11 +120,23 @@ jobs:
         # 修改默认IP
         sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
         
-        # 复制自定义文件
-        cp -r ../files/* ./
+        # 复制自定义文件（如果存在）
+        if [ -d "../files" ]; then
+          cp -r ../files/* ./
+        fi
         
-        # 执行设备特定优化
-        bash ../scripts/optimize.sh ${{ matrix.device }}
+        # 执行优化脚本（如果存在）
+        if [ -f "../scripts/optimize.sh" ]; then
+          bash ../scripts/optimize.sh ${{ matrix.device }}
+        else
+          # 内置优化配置
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
+          echo "CONFIG_STRIP_KERNEL_EXPORTS=y" >> .config
+        fi
+        
+        # 重新生成配置
+        make defconfig
     
     - name: Build
       run: |
@@ -110,13 +150,21 @@ jobs:
       run: |
         cd lede
         mkdir -p ../release/${{ matrix.device }}
-        find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" \) -exec cp {} ../release/${{ matrix.device }} \;
-        cp .config ../release/${{ matrix.device }}/config.txt
-        cd bin/targets/*/*/
-        sha256sum *.img.gz *.bin 2>/dev/null > sha256sums.txt
-        cp sha256sums.txt ../../../../../release/${{ matrix.device }}/
+        # 查找并复制固件
+        find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.ext4.gz" -o -name "*.squashfs" \) -exec cp -v {} ../release/${{ matrix.device }} \;
+        
+        # 复制配置文件
+        cp .config ../release/${{ matrix.device }}/config.build.txt
+        
+        # 生成校验和
+        cd ../release/${{ matrix.device }}
+        sha256sum * 2>/dev/null > sha256sums.txt
+        
+        # 显示固件列表
+        echo "=== 生成的固件 ==="
+        ls -lh
     
-    - name: Upload
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: openwrt-${{ matrix.device }}
@@ -128,16 +176,19 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: nightly-${{ github.run_number }}
-        name: OpenWrt ${{ github.run_number }}
+        name: OpenWrt Build ${{ github.run_number }}
         body: |
           ## 固件信息
+          - **编译时间**: $(date '+%Y-%m-%d %H:%M:%S')
           - **管理地址**: http://10.10.10.1
           - **用户名**: root
           - **密码**: password
           
+          ## 设备: ${{ matrix.device }}
+          
           ## 包含插件
           - PassWall (科学上网)
-          - Adbyby (广告过滤)
+          - Adbyby Plus (广告过滤)
           - MosDNS (DNS转发)
           - TurboACC (网络加速)
           - TTYD (网页终端)
@@ -145,10 +196,12 @@ jobs:
           - Watchcat (看门狗)
           - Aurora主题
           
-          ## 设备
-          ${{ matrix.device == 'all' && 'R2S / CR660x / X86' || matrix.device }}
+          ## 下载说明
+          - 解压后使用
+          - R2S: 写入 TF 卡
+          - CR660x: 通过 breed 刷入
+          - X86: 写入硬盘或虚拟机直接使用
         files: |
-          release/*/*.img.gz
-          release/*/*.bin
+          release/${{ matrix.device }}/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
