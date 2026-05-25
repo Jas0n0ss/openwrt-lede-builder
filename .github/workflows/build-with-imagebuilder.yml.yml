@@ -1,0 +1,86 @@
+name: Build OpenWrt Firmware with ImageBuilder
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: '选择设备'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x86_64
+          - rockchip-armv8
+          - ramips-mt7621
+  schedule:
+    - cron: '0 20 * * 0'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { target: "x86_64", profile: "generic" }
+          - { target: "rockchip-armv8", profile: "friendlyarm_nanopi-r2s" }
+          - { target: "ramips-mt7621", profile: "xiaomi_mi-router-cr660x" }
+        # 排除不想要的设备, 例如:
+        # exclude:
+        #   - { target: "ramips-mt7621", profile: "xiaomi_mi-router-cr660x" }
+    runs-on: ubuntu-latest
+    name: Build ${{ matrix.profile }}
+    # 如果你只想在 workflow_dispatch 时构建所有设备，并在 push 时只构建特定设备，可以添加：
+    # if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.target == 'x86_64') }}
+
+    steps:
+      - name: Checkout custom files
+        uses: actions/checkout@v4
+
+      - name: Build Firmware
+        uses: openwrt/imagebuilder@main
+        with:
+          target: ${{ matrix.target }}
+          profile: ${{ matrix.profile }}
+          packages: >
+            luci
+            luci-ssl
+            luci-i18n-base-zh-cn
+            luci-i18n-firewall-zh-cn
+            luci-app-passwall
+            luci-app-passwall_Including_Hysteria
+            luci-app-passwall_Including_V2ray
+            luci-app-passwall_Including_Xray
+            luci-app-mosdns
+            luci-app-turboacc
+            luci-app-ttyd
+            luci-theme-aurora
+            luci-app-arpbind
+            kmod-usb-net-rtl8152
+            kmod-r8168
+            kmod-mt7915e
+            wpad-openssl
+            kmod-vmxnet3
+            kmod-igb
+            kmod-ixgbe
+            open-vm-tools
+          # 移除你之前想要删除的软件包
+          remove_packages: >
+            vlmcsd
+            luci-app-vlmcsd
+          # 这里可以覆盖默认的 IP 地址设置
+          files: files/
+
+      - name: Rename Firmware Files
+        run: |
+          cd bin/targets/${{ matrix.target }}/*
+          for f in *.*; do
+            new_name=$(echo "$f" | sed "s/-squashfs-/-${{ matrix.profile }}-squashfs-/")
+            mv "$f" "$new_name"
+          done
+          ls -lh
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-${{ matrix.profile }}
+          path: bin/targets/${{ matrix.target }}/*
