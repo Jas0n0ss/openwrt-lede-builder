@@ -90,12 +90,27 @@ jobs:
           cd ${{ github.workspace }}
           
           echo "下载 ImageBuilder for ${{ matrix.device }}"
-          wget -q ${{ matrix.ib_url }}/openwrt-imagebuilder-*.Linux-x86_64.tar.xz
           
-          tar -xf openwrt-imagebuilder-*.Linux-x86_64.tar.xz
-          mv openwrt-imagebuilder-* imagebuilder
-          rm openwrt-imagebuilder-*.Linux-x86_64.tar.xz
+          # 根据设备类型使用精确的文件名
+          case "${{ matrix.device }}" in
+            x86_64)
+              wget -q https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-imagebuilder-23.05.5-x86-64.Linux-x86_64.tar.xz
+              tar -xf openwrt-imagebuilder-23.05.5-x86-64.Linux-x86_64.tar.xz
+              mv openwrt-imagebuilder-23.05.5-x86-64.Linux-x86_64 imagebuilder
+              ;;
+            rockchip-armv8)
+              wget -q https://downloads.openwrt.org/releases/23.05.5/targets/rockchip/armv8/openwrt-imagebuilder-23.05.5-rockchip-armv8.Linux-x86_64.tar.xz
+              tar -xf openwrt-imagebuilder-23.05.5-rockchip-armv8.Linux-x86_64.tar.xz
+              mv openwrt-imagebuilder-23.05.5-rockchip-armv8.Linux-x86_64 imagebuilder
+              ;;
+            ramips-mt7621)
+              wget -q https://downloads.openwrt.org/releases/23.05.5/targets/ramips/mt7621/openwrt-imagebuilder-23.05.5-ramips-mt7621.Linux-x86_64.tar.xz
+              tar -xf openwrt-imagebuilder-23.05.5-ramips-mt7621.Linux-x86_64.tar.xz
+              mv openwrt-imagebuilder-23.05.5-ramips-mt7621.Linux-x86_64 imagebuilder
+              ;;
+          esac
           
+          rm -f openwrt-imagebuilder-*.tar.xz
           echo "ImageBuilder 下载完成"
 
       - name: Prepare custom files
