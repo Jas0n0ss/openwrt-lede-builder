@@ -83,7 +83,7 @@ jobs:
         run: |
           cd lede
           
-          # 使用绝对路径读取配置文件（关键修复）
+          # 使用绝对路径读取配置文件
           cp ${{ github.workspace }}/configs/common.config .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
           echo "CONFIG_CCACHE=y" >> .config
