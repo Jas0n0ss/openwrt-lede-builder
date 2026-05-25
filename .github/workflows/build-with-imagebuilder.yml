@@ -34,11 +34,9 @@ jobs:
     name: Build LEDE for ${{ matrix.device }}
 
     steps:
-      # 1. 检出你的仓库（包含 configs/ 目录）
       - name: Checkout builder config
         uses: actions/checkout@v4
 
-      # 2. 检出 LEDE 源码到 lede 子目录
       - name: Checkout LEDE source
         uses: actions/checkout@v4
         with:
@@ -46,7 +44,6 @@ jobs:
           path: lede
           ref: master
 
-      # 3. 安装编译依赖
       - name: Setup dependencies
         run: |
           sudo apt update
@@ -57,11 +54,9 @@ jobs:
             libncurses5-dev libncursesw5-dev
           sudo timedatectl set-timezone "Asia/Shanghai"
 
-      # 4. 配置 feeds（添加第三方源）
       - name: Configure feeds
         run: |
           cd lede
-          # 在 feeds.conf.default 顶部插入第三方源
           sed -i '1i src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' feeds.conf.default
           sed -i '2i src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' feeds.conf.default
           sed -i '3i src-git kenzo https://github.com/kenzok8/openwrt-packages.git' feeds.conf.default
@@ -69,7 +64,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 5. 克隆额外插件
       - name: Clone additional plugins
         run: |
           cd lede
@@ -78,20 +72,13 @@ jobs:
           git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd
           git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora
 
-      # 6. 生成 .config 配置文件
       - name: Generate .config
         run: |
           cd lede
-          
-          # 使用绝对路径读取配置文件
           cp ${{ github.workspace }}/configs/common.config .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
           echo "CONFIG_CCACHE=y" >> .config
-          
-          # 修改默认 IP 为 10.10.10.1
           sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
-          
-          # 启用插件
           echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall_Including_Hysteria=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall_Including_V2ray=y" >> .config
@@ -101,21 +88,15 @@ jobs:
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-aurora=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-arpbind=y" >> .config
-          
-          # 禁用问题包
           echo "# CONFIG_PACKAGE_vlmcsd is not set" >> .config
           echo "# CONFIG_PACKAGE_luci-app-vlmcsd is not set" >> .config
-          
-          # 生成最终配置
           make defconfig
 
-      # 7. 下载源码包
       - name: Download sources
         run: |
           cd lede
           make download -j16
 
-      # 8. 编译固件（自动容错）
       - name: Compile firmware
         run: |
           cd lede
@@ -127,26 +108,19 @@ jobs:
             make -j1 V=s
           fi
 
-      # 9. 整理产物
       - name: Prepare artifacts
         run: |
           cd lede
           mkdir -p ../release/${{ matrix.device }}
-          
-          # 复制固件文件
           find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.ext4.gz" -o -name "*.squashfs" -o -name "*.img" \) 2>/dev/null | while read file; do
             filename=$(basename "$file")
             cp "$file" "../release/${{ matrix.device }}/${filename}"
           done
-          
-          # 生成校验和
           cd ../release/${{ matrix.device }}
           sha256sum *.{img.gz,bin,vmdk,qcow2,img} 2>/dev/null > sha256sums.txt
-          
           echo "=== 生成的固件 ==="
           ls -lh
 
-      # 10. 上传到 Actions Artifacts
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -154,7 +128,6 @@ jobs:
           path: release/${{ matrix.device }}
           retention-days: 7
 
-      # 11. 发布到 GitHub Release（仅 push 到 main 时触发）
       - name: Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
@@ -163,13 +136,13 @@ jobs:
           name: "LEDE Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}"
           body: |
             ## LEDE 固件自动构建
-            
+
             ### 版本信息
             - **设备**: ${{ matrix.device }}
             - **管理地址**: http://10.10.10.1
             - **用户名**: root
             - **密码**: password
-            
+
             ### 包含插件
             - PassWall (科学上网)
             - MosDNS (DNS转发)
@@ -177,7 +150,7 @@ jobs:
             - TTYD (网页终端)
             - Aurora (现代化主题)
             - ARP绑定
-            
+
             ### 安装说明
             | 设备 | 安装方法 |
             |------|----------|
