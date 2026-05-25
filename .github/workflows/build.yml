@@ -128,25 +128,48 @@ jobs:
           sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
           
           # ----- 插件配置 -----
-          # PassWall
           echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall_Including_Hysteria=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall_Including_V2ray=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall_Including_Xray=y" >> .config
           
-          # 其他实用插件
           echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-aurora=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-arpbind=y" >> .config
           
-          # 禁用有问题的包
           echo "# CONFIG_PACKAGE_vlmcsd is not set" >> .config
           echo "# CONFIG_PACKAGE_luci-app-vlmcsd is not set" >> .config
           
-          # 完成配置生成
           make defconfig
+
+      # 新增：提取 LEDE 版本信息
+      - name: Get LEDE version
+        id: lede_version
+        run: |
+          cd lede
+          # 获取版本信息
+          if [ -f package/lean/default-settings/files/zzz-default-settings ]; then
+            VERSION=$(grep -o 'R[0-9][0-9]\.[0-9][0-9]\.[0-9][0-9]' package/lean/default-settings/files/zzz-default-settings | head -1)
+          fi
+          # 如果没有找到，使用 git 描述
+          if [ -z "$VERSION" ]; then
+            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "unknown")
+          fi
+          # 获取 OpenWrt 内核版本
+          KERNEL=$(make kernel_version 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+.[0-9]\+' | head -1 || echo "unknown")
+          # 获取编译日期
+          BUILD_DATE=$(date '+%Y-%m-%d')
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "kernel=${KERNEL}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "lede_version=${VERSION}-${BUILD_DATE}" >> $GITHUB_OUTPUT
+          
+          echo "LEDE 版本: ${VERSION}"
+          echo "内核版本: ${KERNEL}"
+          echo "编译日期: ${BUILD_DATE}"
 
       # ----- 7. 下载源码包 -----
       - name: Download packages
@@ -177,15 +200,35 @@ jobs:
         run: |
           cd lede
           mkdir -p ../release/${{ matrix.device }}
-          # 复制固件
-          find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.ext4.gz" -o -name "*.squashfs" -o -name "*.img" \) -exec cp -v {} ../release/${{ matrix.device }} \;
+          
+          # 获取版本信息
+          LEDE_VER="${{ steps.lede_version.outputs.version }}"
+          BUILD_DATE="${{ steps.lede_version.outputs.build_date }}"
+          
+          # 复制并重命名固件文件
+          find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.ext4.gz" -o -name "*.squashfs" -o -name "*.img" \) | while read file; do
+            filename=$(basename "$file")
+            dirname=$(dirname "$file")
+            # 添加版本前缀
+            newname="${LEDE_VER}-${BUILD_DATE}-${filename}"
+            cp "$file" "../release/${{ matrix.device }}/${newname}"
+          done
+          
           # 复制构建信息
           cp .config ../release/${{ matrix.device }}/config.build.txt
-          find bin/targets/ -type f -name "*.buildinfo" -exec cp {} ../release/${{ matrix.device }}/ \;
-          find bin/targets/ -type f -name "*.manifest" -exec cp {} ../release/${{ matrix.device }}/ \;
+          
+          # 保存版本信息
+          echo "LEDE Version: ${LEDE_VER}" > ../release/${{ matrix.device }}/VERSION.txt
+          echo "Build Date: ${BUILD_DATE}" >> ../release/${{ matrix.device }}/VERSION.txt
+          echo "Kernel: ${{ steps.lede_version.outputs.kernel }}" >> ../release/${{ matrix.device }}/VERSION.txt
+          echo "Device: ${{ matrix.device }}" >> ../release/${{ matrix.device }}/VERSION.txt
+          
           # 生成校验和
           cd ../release/${{ matrix.device }}
           sha256sum * > sha256sums.txt
+          
+          echo "=== 生成的固件 ==="
+          ls -lh
 
       # ----- 10. 上传产物 (按设备区分) -----
       - name: Upload firmware
@@ -196,29 +239,51 @@ jobs:
           retention-days: 7
 
       # ----- 11. 发布到 Release (仅主分支推送时触发) -----
+      - name: Create Release Body
+        id: release_body
+        run: |
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "## 固件信息" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "| 项目 | 信息 |" >> $GITHUB_OUTPUT
+          echo "|------|------|" >> $GITHUB_OUTPUT
+          echo "| **LEDE 版本** | ${{ steps.lede_version.outputs.version }} |" >> $GITHUB_OUTPUT
+          echo "| **内核版本** | ${{ steps.lede_version.outputs.kernel }} |" >> $GITHUB_OUTPUT
+          echo "| **编译时间** | ${{ steps.lede_version.outputs.build_date }} |" >> $GITHUB_OUTPUT
+          echo "| **管理地址** | http://10.10.10.1 |" >> $GITHUB_OUTPUT
+          echo "| **用户名** | root |" >> $GITHUB_OUTPUT
+          echo "| **密码** | password |" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "## 设备: ${{ matrix.device }}" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### 固件文件" >> $GITHUB_OUTPUT
+          echo '```' >> $GITHUB_OUTPUT
+          ls -lh release/${{ matrix.device }}/*.img.gz release/${{ matrix.device }}/*.bin 2>/dev/null | awk '{print $9 " (" $5 ")"}' >> $GITHUB_OUTPUT
+          echo '```' >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### 包含插件" >> $GITHUB_OUTPUT
+          echo "- PassWall (科学上网)" >> $GITHUB_OUTPUT
+          echo "- MosDNS (DNS转发)" >> $GITHUB_OUTPUT
+          echo "- TurboACC (网络加速)" >> $GITHUB_OUTPUT
+          echo "- TTYD (网页终端)" >> $GITHUB_OUTPUT
+          echo "- Aurora (主题)" >> $GITHUB_OUTPUT
+          echo "- ARP绑定" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: nightly-${{ github.run_number }}
-          name: OpenWrt Build ${{ github.run_number }}
-          body: |
-            ## 固件信息
-            - **编译时间**: $(date '+%Y-%m-%d %H:%M:%S')
-            - **管理地址**: http://10.10.10.1
-            - **用户名**: root
-            - **密码**: password
-            
-            ## 设备: ${{ matrix.device }}
-            
-            ## 包含插件
-            - PassWall, MosDNS, TurboACC, TTYD, Aurora主题, ARP绑定
-            
-            ## 下载说明
-            - R2S: 写入 TF 卡
-            - CR660x: 通过 breed 刷入
-            - X86: 写入硬盘或虚拟机直接使用
+          tag_name: ${{ steps.lede_version.outputs.lede_version }}-${{ github.run_number }}
+          name: OpenWrt ${{ steps.lede_version.outputs.version }} - Build ${{ github.run_number }}
+          body: ${{ steps.release_body.outputs.body }}
           files: |
-            release/${{ matrix.device }}/*
+            release/${{ matrix.device }}/*.img.gz
+            release/${{ matrix.device }}/*.bin
+            release/${{ matrix.device }}/*.vmdk
+            release/${{ matrix.device }}/*.qcow2
+            release/${{ matrix.device }}/*.ext4.gz
+            release/${{ matrix.device }}/*.squashfs
+            release/${{ matrix.device }}/*.img
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
