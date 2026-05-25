@@ -21,75 +21,64 @@ jobs:
     strategy:
       matrix:
         include:
-          - { target: "x86_64", profile: "generic" }
-          - { target: "rockchip-armv8", profile: "friendlyarm_nanopi-r2s" }
-          - { target: "ramips-mt7621", profile: "xiaomi_mi-router-cr660x" }
-        # 排除不想要的设备, 例如:
-        # exclude:
-        #   - { target: "ramips-mt7621", profile: "xiaomi_mi-router-cr660x" }
+          - { target: "x86_64", profile: "generic", builder_tag: "x86_64-latest" }
+          - { target: "rockchip-armv8", profile: "friendlyarm_nanopi-r2s", builder_tag: "rockchip-armv8-latest" }
+          - { target: "ramips-mt7621", profile: "xiaomi_mi-router-cr660x", builder_tag: "ramips-mt7621-latest" }
     runs-on: ubuntu-latest
     name: Build ${{ matrix.profile }}
-    # 如果你只想在 workflow_dispatch 时构建所有设备，并在 push 时只构建特定设备，可以添加：
-    # matrix 不能在 job-level if 中被解析，因此在 job 级别只检查事件类型，
-    # 并在 steps 中根据 matrix.target 决定是否跳过该构建。
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
 
     steps:
       - name: Checkout custom files
         uses: actions/checkout@v4
 
       - name: Skip non-x86_64 on push
-        # 在 push 事件中仅希望构建 x86_64 时，先在步骤级别检测并跳过其它矩阵项
-        if: ${{ github.event_name == 'push' && matrix.target != 'x86_64' }}
+        if: github.event_name == 'push' && matrix.target != 'x86_64'
         run: |
           echo "Push event: skipping matrix.target=${{ matrix.target }}"
           exit 0
 
-      - name: Build Firmware
-        uses: openwrt/imagebuilder@main
-        with:
-          target: ${{ matrix.target }}
-          profile: ${{ matrix.profile }}
-          packages: >
-            luci
-            luci-ssl
-            luci-i18n-base-zh-cn
-            luci-i18n-firewall-zh-cn
-            luci-app-passwall
-            luci-app-passwall_Including_Hysteria
-            luci-app-passwall_Including_V2ray
-            luci-app-passwall_Including_Xray
-            luci-app-mosdns
-            luci-app-turboacc
-            luci-app-ttyd
-            luci-theme-aurora
-            luci-app-arpbind
-            kmod-usb-net-rtl8152
-            kmod-r8168
-            kmod-mt7915e
-            wpad-openssl
-            kmod-vmxnet3
-            kmod-igb
-            kmod-ixgbe
-            open-vm-tools
-          # 移除你之前想要删除的软件包
-          remove_packages: >
-            vlmcsd
-            luci-app-vlmcsd
-          # 这里可以覆盖默认的 IP 地址设置
-          files: files/
-
-      - name: Rename Firmware Files
+      - name: Build Firmware with ImageBuilder
         run: |
-          cd bin/targets/${{ matrix.target }}/*
-          for f in *.*; do
-            new_name=$(echo "$f" | sed "s/-squashfs-/-${{ matrix.profile }}-squashfs-/")
-            mv "$f" "$new_name"
+          # 创建输出目录
+          mkdir -p ./bin
+          
+          # 运行 Docker 容器构建固件
+          docker run --rm \
+            -v ${{ github.workspace }}/files:/files \
+            -v ${{ github.workspace }}/bin:/home/builder/bin \
+            openwrt/imagebuilder:${{ matrix.builder_tag }} \
+            make image \
+              PROFILE="${{ matrix.profile }}" \
+              PACKAGES="luci luci-ssl luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn luci-app-passwall luci-app-passwall_Including_Hysteria luci-app-passwall_Including_V2ray luci-app-passwall_Including_Xray luci-app-mosdns luci-app-turboacc luci-app-ttyd luci-theme-aurora luci-app-arpbind" \
+              FILES="/files"
+          
+          echo "构建完成，查看生成的文件："
+          ls -la ./bin/
+
+      - name: Rename and organize firmware files
+        run: |
+          # 查找生成的固件文件
+          find ./bin -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" \) | while read file; do
+            dir=$(dirname "$file")
+            filename=$(basename "$file")
+            # 重命名文件，添加 profile 信息
+            newname=$(echo "$filename" | sed "s/-squashfs-/-${{ matrix.profile }}-squashfs-/")
+            mv "$file" "$dir/$newname"
+            echo "重命名: $filename -> $newname"
           done
-          ls -lh
+          
+          # 显示所有固件文件
+          echo "=== 生成的固件文件 ==="
+          find ./bin -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" \) -exec ls -lh {} \;
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-${{ matrix.profile }}
-          path: bin/targets/${{ matrix.target }}/*
+          path: |
+            ./bin/**/*.img.gz
+            ./bin/**/*.bin
+            ./bin/**/*.vmdk
+            ./bin/**/*.qcow2
+          retention-days: 7

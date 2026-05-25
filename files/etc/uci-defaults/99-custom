@@ -13,7 +13,7 @@ uci commit dhcp
 
 # 设置时区
 uci set system.@system[0].timezone='CST-8'
-uci set system.@system[0].zonename='Asia/Shanghai'
+uci set system.@system[0].zonename='Asia/Dubai'
 uci commit system
 
 # 设置主题
