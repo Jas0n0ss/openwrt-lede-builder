@@ -6,7 +6,7 @@ on:
       device:
         description: '设备'
         required: true
-        default: 'all'
+        default: 'ramips-mt7621'
         type: choice
         options: ['all', 'x86_64', 'rockchip-armv8', 'ramips-mt7621']
   schedule:
