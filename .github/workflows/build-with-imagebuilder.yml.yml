@@ -30,11 +30,21 @@ jobs:
     runs-on: ubuntu-latest
     name: Build ${{ matrix.profile }}
     # 如果你只想在 workflow_dispatch 时构建所有设备，并在 push 时只构建特定设备，可以添加：
-    # if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && matrix.target == 'x86_64') }}
+    # matrix 不能在 job-level if 中被解析，因此在 job 级别只检查事件类型，
+    # 并在 steps 中根据 matrix.target 决定是否跳过该构建。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
 
     steps:
       - name: Checkout custom files
         uses: actions/checkout@v4
+
+      - name: Build Firmware
+        # 在 push 事件中仅希望构建 x86_64 时，先在步骤级别检测并跳过其它矩阵项
+      - name: Skip non-x86_64 on push
+        if: ${{ github.event_name == 'push' && matrix.target != 'x86_64' }}
+        run: |
+          echo "Push event: skipping matrix.target=${{ matrix.target }}"
+          exit 0
 
       - name: Build Firmware
         uses: openwrt/imagebuilder@main
