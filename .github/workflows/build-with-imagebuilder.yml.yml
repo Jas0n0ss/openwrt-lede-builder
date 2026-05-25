@@ -38,9 +38,8 @@ jobs:
       - name: Checkout custom files
         uses: actions/checkout@v4
 
-      - name: Build Firmware
-        # 在 push 事件中仅希望构建 x86_64 时，先在步骤级别检测并跳过其它矩阵项
       - name: Skip non-x86_64 on push
+        # 在 push 事件中仅希望构建 x86_64 时，先在步骤级别检测并跳过其它矩阵项
         if: ${{ github.event_name == 'push' && matrix.target != 'x86_64' }}
         run: |
           echo "Push event: skipping matrix.target=${{ matrix.target }}"
