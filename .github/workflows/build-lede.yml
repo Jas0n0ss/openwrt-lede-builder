@@ -26,34 +26,36 @@ env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
-  # 阶段一：动态生成矩阵，决定到底要编译哪些设备
-  generate-matrix:
-    runs-on: ubuntu-22.04
+  setup:
+    runs-on: ubuntu-latest
     outputs:
-      devices: ${{ steps: set-matrix.outputs.devices }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - id: set-matrix
         run: |
-          # 默认所有的设备列表
-          ALL_DEVICES='["r2s", "cr660x", "ax6000", "x86_64", "raspberrypi-4b"]'
-          
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.device }}" != "all" ]; then
-            # 如果指定了单个设备，就只把这一个设备填入矩阵
-            echo "devices=[\"${{ github.event.inputs.device }}\"]" >> $GITHUB_OUTPUT
+            echo 'matrix={"device":["${{ github.event.inputs.device }}"]}' >> $GITHUB_OUTPUT
           else
-            # 定时任务或选择了 all，则编译全部
-            echo "devices=${ALL_DEVICES}" >> $GITHUB_OUTPUT
+            echo 'matrix={"device":["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]}' >> $GITHUB_OUTPUT
           fi
 
-  # 阶段二：根据生成的矩阵真正开始编译
   build:
-    needs: generate-matrix
+    needs: setup
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
-      matrix:
-        device: ${{ fromJson(needs.generate-matrix.outputs.devices) }}
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     name: Build LEDE for ${{ matrix.device }}
+
+  # # 阶段二：根据生成的矩阵真正开始编译
+  # build:
+  #   needs: generate-matrix
+  #   runs-on: ubuntu-22.04
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       device: ${{ fromJson(needs.generate-matrix.outputs.devices) }}
+  #   name: Build LEDE for ${{ matrix.device }}
 
     steps:
       - name: Checkout builder config
