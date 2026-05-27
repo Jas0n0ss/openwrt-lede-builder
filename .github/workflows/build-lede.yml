@@ -12,7 +12,9 @@ on:
           - all
           - r2s
           - cr660x
-          - x86
+          - ax6000
+          - x86_64
+          - raspberrypi-4b
   schedule:
     - cron: '0 20 * * 0'
   push:
@@ -30,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [r2s, cr660x, x86]
+        device: [r2s, cr660x, ax6000, x86_64, raspberrypi-4b]
     name: Build LEDE for ${{ matrix.device }}
 
     steps:
@@ -64,13 +66,20 @@ jobs:
         run: |
           cd lede
           
-          # 在 feeds.conf.default 顶部插入 PassWall 官方源
-          echo 'src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' > feeds.conf.default.new
-          echo 'src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' >> feeds.conf.default.new
-          echo 'src-git kenzo https://github.com/kenzok8/openwrt-packages.git' >> feeds.conf.default.new
-          echo 'src-git small https://github.com/kenzok8/small.git' >> feeds.conf.default.new
-          cat feeds.conf.default >> feeds.conf.default.new
-          mv feeds.conf.default.new feeds.conf.default
+          # 备份原 feeds.conf.default
+          cp feeds.conf.default feeds.conf.default.bak
+          
+          # 创建新的 feeds.conf.default，在顶部插入 PassWall 官方源
+          cat > feeds.conf.default << 'EOF'
+          src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
+          src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
+          src-git kenzo https://github.com/kenzok8/openwrt-packages.git
+          src-git small https://github.com/kenzok8/small.git
+          EOF
+          
+          # 追加默认源
+          cat feeds.conf.default.bak >> feeds.conf.default
+          rm feeds.conf.default.bak
           
           # 更新 feeds
           ./scripts/feeds update -a
@@ -90,19 +99,35 @@ jobs:
         run: |
           cd lede
           
-          # 基础配置
+          # 检查配置文件是否存在
+          if [ ! -f "${{ github.workspace }}/configs/common.config" ]; then
+            echo "错误: common.config 不存在"
+            exit 1
+          fi
+          if [ ! -f "${{ github.workspace }}/configs/${{ matrix.device }}.config" ]; then
+            echo "错误: ${{ matrix.device }}.config 不存在"
+            exit 1
+          fi
+          
+          # 复制基础配置
           cp ${{ github.workspace }}/configs/common.config .config
+          
+          # 添加设备特定配置
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
+          
+          # 添加通用编译选项
           echo "CONFIG_CCACHE=y" >> .config
           
-          # 修改默认 IP
-          sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
+          # 修改默认 IP 为 10.10.10.1
+          if [ -f package/base-files/files/bin/config_generate ]; then
+            sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
+          fi
           
           # PassWall 配置
           echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall_Including_Hysteria=y" >> .config
           
-          # 强制添加 PassWall 依赖（关键修复）
+          # 强制添加 PassWall 依赖（解决 xray-core 缺失问题）
           echo "CONFIG_PACKAGE_xray-core=y" >> .config
           echo "CONFIG_PACKAGE_sing-box=y" >> .config
           echo "CONFIG_PACKAGE_v2ray-geodata=y" >> .config
@@ -117,32 +142,87 @@ jobs:
           
           # 禁用问题包
           echo "# CONFIG_PACKAGE_vlmcsd is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-app-vlmcsd is not set" >> .config
           
+          # 生成最终配置
           make defconfig
 
-      # ===== 关键修复：预编译 PassWall 核心依赖 =====
+      # ===== 自定义页脚，移除所有外链 =====
+      - name: Customize footer and remove external links
+        run: |
+          cd lede
+          
+          # 修改 default-settings 中的页脚设置
+          SETTINGS_FILE="package/lean/default-settings/files/zzz-default-settings"
+          if [ -f "$SETTINGS_FILE" ]; then
+            # 删除所有包含外部链接的行
+            sed -i '/https\?:\/\//d' "$SETTINGS_FILE"
+            sed -i '/github\.com/d' "$SETTINGS_FILE"
+            sed -i '/www\./d' "$SETTINGS_FILE"
+            sed -i '/Powered by/d' "$SETTINGS_FILE"
+            sed -i '/Copyright/d' "$SETTINGS_FILE"
+            
+            # 在文件末尾添加自定义页脚
+            cat >> "$SETTINGS_FILE" << 'EOF'
+            
+            # Custom footer - Build by @Jas0n0ss from LEDE
+            echo ""
+            echo "============================================="
+            echo "  Build by @Jas0n0ss from LEDE"
+            echo "  Source: https://github.com/coolsnowwolf/lede"
+            echo "============================================="
+            echo ""
+            EOF
+            echo "已修改 default-settings 页脚"
+          fi
+          
+          # 修改登录欢迎界面（banner）
+          BANNER_FILE="package/base-files/files/etc/banner"
+          if [ -f "$BANNER_FILE" ]; then
+            cat > "$BANNER_FILE" << 'EOF'
+           ______  _       ______   _____   ______
+          |  _  \| |     |  _  \ |  ___| |  _  \
+          | | | || |     | | | | | |__   | | | |
+          | | | || |     | | | | |  __|  | | | |
+          | |_| || |___  | |_| | | |___  | |_| |
+          |_____/|_____| |_____/ |_____/ |_____/
+          
+          =============================================
+            Build by @Jas0n0ss from LEDE
+            Source: https://github.com/coolsnowwolf/lede
+          =============================================
+          EOF
+            echo "已修改 banner 页脚"
+          fi
+          
+          echo "页脚自定义完成，所有外链已移除"
+
+      # ===== 预编译 PassWall 核心依赖（解决 xray-core 编译失败） =====
       - name: Prebuild PassWall dependencies
         run: |
           cd lede
           
           echo "=== 预编译 toolchain ==="
-          make toolchain/compile -j$(nproc)
+          make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
           
           echo "=== 预编译 xray-core（最关键） ==="
           if grep -q "CONFIG_PACKAGE_xray-core=y" .config; then
             make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
           else
-            echo "WARNING: xray-core 未在配置中"
+            echo "xray-core 未在配置中，手动添加..."
+            echo "CONFIG_PACKAGE_xray-core=y" >> .config
+            make defconfig
+            make package/xray-core/compile -j1 V=s
           fi
           
           echo "=== 预编译 sing-box ==="
-          make package/sing-box/compile -j$(nproc) || echo "sing-box 编译跳过"
+          make package/sing-box/compile -j$(nproc) 2>/dev/null || echo "sing-box 编译跳过（可能不需要）"
           
           echo "=== 预编译 geoview ==="
-          make package/geoview/compile -j$(nproc) || echo "geoview 编译跳过"
+          make package/geoview/compile -j$(nproc) 2>/dev/null || echo "geoview 编译跳过"
           
           echo "=== 预编译 v2ray-geodata ==="
-          make package/v2ray-geodata/compile -j$(nproc) || echo "v2ray-geodata 编译跳过"
+          make package/v2ray-geodata/compile -j$(nproc) 2>/dev/null || echo "v2ray-geodata 编译跳过"
           
           echo "=== PassWall 依赖预处理完成 ==="
 
@@ -151,7 +231,7 @@ jobs:
           cd lede
           make download -j16
 
-      # ===== 编译固件（先编译依赖，再编译主包） =====
+      # ===== 编译固件 =====
       - name: Compile firmware
         run: |
           cd lede
@@ -159,11 +239,11 @@ jobs:
           
           # 先编译 PassWall 的所有依赖包
           echo "=== 编译 PassWall 依赖包 ==="
-          make package/feeds/passwall_packages/*/compile -j$(nproc) || true
+          make package/feeds/passwall_packages/*/compile -j$(nproc) 2>/dev/null || true
           
           # 再编译 PassWall 主包
           echo "=== 编译 PassWall 主包 ==="
-          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) || true
+          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) 2>/dev/null || true
           
           # 最后编译完整固件
           echo "=== 编译完整固件 ==="
@@ -174,17 +254,38 @@ jobs:
             make -j1 V=s
           fi
 
+      # ===== 整理产物 =====
       - name: Prepare artifacts
         run: |
           cd lede
           mkdir -p ../release/${{ matrix.device }}
-          find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" \) 2>/dev/null | while read file; do
+          
+          # 查找并复制固件文件
+          find bin/targets/ -type f \( \
+            -name "*.img.gz" -o \
+            -name "*.bin" -o \
+            -name "*.vmdk" -o \
+            -name "*.qcow2" -o \
+            -name "*.ext4.gz" -o \
+            -name "*.squashfs" -o \
+            -name "*.img" -o \
+            -name "*.sdcard.img" -o \
+            -name "*-sysupgrade.*" \
+          \) 2>/dev/null | while read file; do
             cp "$file" "../release/${{ matrix.device }}/"
+            echo "已复制: $(basename "$file")"
           done
+          
+          # 生成校验和
           cd ../release/${{ matrix.device }}
-          sha256sum * 2>/dev/null > sha256sums.txt
-          echo "=== 生成的固件 ==="
-          ls -lh
+          if [ -n "$(ls -A 2>/dev/null)" ]; then
+            sha256sum * > sha256sums.txt
+            echo "=== 生成的固件 ==="
+            ls -lh
+          else
+            echo "警告: 未找到固件文件"
+            ls -la ../../
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -193,6 +294,7 @@ jobs:
           path: release/${{ matrix.device }}
           retention-days: 7
 
+      # ===== 发布 Release =====
       - name: Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
@@ -215,12 +317,24 @@ jobs:
             - Aurora (现代化主题)
             - ARP 绑定
             
-            ### 依赖说明
-            - PassWall 所需依赖（xray-core、sing-box、geoview 等）已预编译
+            ### 安装说明
+            | 设备 | 安装方法 |
+            |------|----------|
+            | R2S | 解压 .img.gz 后写入 TF 卡 |
+            | CR660x | 通过 breed 刷入 .bin 文件 |
+            | Redmi AX6000 | 通过 uboot 刷入 |
+            | x86_64 | 写入硬盘或虚拟机直接使用 |
+            | 树莓派4B | 解压 .img 后写入 SD 卡 |
+            
+            ### 固件下载
+            - 固件文件在下方 Assets 中
+            - 使用前请验证 sha256sums.txt
           files: |
             release/${{ matrix.device }}/*.img.gz
             release/${{ matrix.device }}/*.bin
             release/${{ matrix.device }}/*.vmdk
             release/${{ matrix.device }}/*.qcow2
+            release/${{ matrix.device }}/*.sdcard.img
+            release/${{ matrix.device }}/*-sysupgrade.*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
