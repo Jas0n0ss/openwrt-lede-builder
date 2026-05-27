@@ -1,59 +1,116 @@
-# OpenWrt 自动编译项目
+# LEDE 固件自动构建
 
-## 快速开始
+[![GitHub Actions](https://img.shields.io/github/actions/workflow/status/Jas0n0ss/openwrt-lede-builder/build-lede.yml?branch=main)](https://github.com/Jas0n0ss/openwrt-lede-builder/actions)
+[![GitHub release](https://img.shields.io/github/v/release/Jas0n0ss/openwrt-lede-builder)](https://github.com/Jas0n0ss/openwrt-lede-builder/releases)
+[![GitHub license](https://img.shields.io/github/license/Jas0n0ss/openwrt-lede-builder)](https://github.com/Jas0n0ss/openwrt-lede-builder/blob/main/LICENSE)
 
-1. **Fork 本项目到你的 GitHub**
+基于 [coolsnowwolf/lede](https://github.com/coolsnowwolf/lede) 源码，使用 GitHub Actions 自动编译 OpenWrt/LEDE 固件。
 
-2. **启用 Actions**
-   - Settings -> Actions -> General -> Allow all actions
+**Build by @Jas0n0ss from LEDE**
 
-3. **触发编译**
-   - 手动: Actions -> Build OpenWrt -> Run workflow
-   - 自动: 每周日自动编译
+---
 
-## 编译结果
+## 📱 支持的设备
 
-- **管理地址**: http://10.10.10.1
-- **用户名**: root  
-- **密码**: password
+| 设备 | 代号 | 架构 | 固件格式 |
+|------|------|------|----------|
+| **FriendlyARM NanoPi R2S** | `r2s` | Rockchip ARMv8 | `.img.gz` |
+| **小米 CR660x** (CR6606/6608/6609) | `cr660x` | MediaTek MT7621 | `.bin` |
+| **红米 Redmi AX6000** | `ax6000` | MediaTek MT7986 | `.bin` |
+| **x86_64 软路由** | `x86_64` | x86_64 | `.img.gz` / `.vmdk` / `.qcow2` |
+| **树莓派 4B** | `raspberrypi-4b` | BCM2711 | `.sdcard.img` |
 
-## 支持的设备
+> 支持选择编译单个设备或一次性编译所有设备
 
-- **R2S** - FriendlyARM NanoPi R2S
-- **CR660x** - 小米路由器 CR6606/6608/6609
-- **X86_64** - 软路由/虚拟机
+---
 
-## 包含插件
+## 📦 包含插件
 
+### 科学上网
 | 插件 | 说明 |
 |------|------|
-| PassWall | 科学上网 |
-| Adbyby Plus | 广告过滤 |
-| MosDNS | DNS转发 |
-| TurboACC | 网络加速 |
-| TTYD | 网页终端 |
-| KMS | 激活服务 |
-| Watchcat | 系统监控 |
-| Aurora | 主题 |
+| **PassWall** | 科学上网代理平台（含 Hysteria 支持） |
+| Xray-core | PassWall 核心依赖 |
+| sing-box | 通用代理平台 |
+| v2ray-geodata | GeoIP 和 geosite 数据 |
 
-## 下载固件
+### DNS 服务
+| 插件 | 说明 |
+|------|------|
+| **MosDNS** | DNS 转发/分流器 |
+| dnsmasq-full | DNS/DHCP 服务 |
 
-编译完成后：
-- **Artifacts**: Actions 页面下载（保留7天）
-- **Releases**: 自动发布的版本（永久）
+### 网络加速
+| 插件 | 说明 |
+|------|------|
+| **TurboACC** | 网络加速引擎 |
+| firewall4 | nftables 防火墙 |
 
-## 本地编译
+### 系统工具
+| 插件 | 说明 |
+|------|------|
+| **TTYD** | 网页终端 |
+| **ARP 绑定** | IP/MAC 绑定 |
+| **Aurora 主题** | 现代化 LuCI 主题 |
+| htop | 系统监控 |
+| vim | 文本编辑器 |
+| curl/wget | 网络工具 |
+
+---
+
+## 🌐 默认设置
+
+| 项目 | 值 |
+|------|-----|
+| **管理地址** | http://10.10.10.1 |
+| **用户名** | `root` |
+| **密码** | `password` |
+| **DHCP 范围** | 10.10.10.100 - 10.10.10.250 |
+| **时区** | Asia/Shanghai |
+| **主题** | Aurora |
+
+---
+
+## 🚀 使用方法
+
+### 方式一：GitHub Actions 自动编译（推荐）
+
+1. **Fork 本项目** 到你的 GitHub 账号
+
+2. **启用 Actions**
+   - 进入 `Settings` → `Actions` → `General`
+   - 选择 `Allow all actions`
+   - 设置 `Workflow permissions` 为 `Read and write permissions`
+
+3. **触发编译**
+   - 进入 `Actions` 页面
+   - 选择 `Build LEDE Firmware`
+   - 点击 `Run workflow`
+   - 选择设备（`all` 或单个设备）
+   - 点击运行
+
+4. **下载固件**
+   - 编译完成后（约 1-2 小时）
+   - 在 `Actions` 页面点击对应任务
+   - 下载 `Artifacts` 中的固件包
+   - 或从 `Releases` 页面下载
+
+### 方式二：本地编译
 
 ```bash
-# 克隆 LEDE
-git clone https://github.com/coolsnowwolf/lede
+# 克隆源码
+git clone https://github.com/coolsnowwolf/lede.git
 cd lede
 
-# 应用配置
-cat ../configs/common.config > .config
-cat ../configs/r2s.config >> .config
-make defconfig
+# 更新 feeds
+./scripts/feeds update -a
+./scripts/feeds install -a
 
-# 编译
-make download -j$(nproc)
+# 配置固件
+make menuconfig
+
+# 下载源码
+make download -j8
+
+# 开始编译
 make -j$(nproc) V=s

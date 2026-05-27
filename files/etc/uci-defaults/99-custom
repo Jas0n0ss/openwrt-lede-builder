@@ -1,32 +1,73 @@
 #!/bin/sh
 
-# 设置管理地址
+# ============================================
+# 个性化配置文件
+# Build by @Jas0n0ss from LEDE
+# ============================================
+
+# 1. 设置管理地址为 10.10.10.1
 uci set network.lan.ipaddr='10.10.10.1'
 uci set network.lan.netmask='255.255.255.0'
 uci commit network
 
-# 设置 DHCP
-uci set dhcp.lan.start='100'
-uci set dhcp.lan.limit='150'
+# 2. 设置 DHCP 范围
+uci set dhcp.lan.start='10'
+uci set dhcp.lan.limit='100'
 uci set dhcp.lan.leasetime='12h'
 uci commit dhcp
 
-# 设置时区
+# 3. 设置时区为上海
 uci set system.@system[0].timezone='CST-8'
-uci set system.@system[0].zonename='Asia/Dubai'
+uci set system.@system[0].zonename='Asia/Shanghai'
 uci commit system
 
-# 设置主题
+# 4. 设置主题为 Aurora
 uci set luci.main.mediaurlbase='/luci-static/aurora'
 uci commit luci
 
-# 优化 DNS
-uci set dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.d/resolv.conf.auto'
-uci set dhcp.@dnsmasq[0].noresolv='0'
-uci commit dhcp
+# 5. 修改欢迎横幅（banner）
+if [ -f /etc/banner ]; then
+    cat > /etc/banner << 'EOB'
+ ______  _       ______   _____   ______
+|  _  \| |     |  _  \ |  ___| |  _  \
+| | | || |     | | | | | |__   | | | |
+| | | || |     | | | | |  __|  | | | |
+| |_| || |___  | |_| | | |___  | |_| |
+|_____/|_____| |_____/ |_____/ |_____/
 
-# 安全设置
-sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/g' /etc/ssh/sshd_config
-sed -i 's/#ClientAliveInterval 0/ClientAliveInterval 300/g' /etc/ssh/sshd_config
+=============================================
+  Build by @Jas0n0ss from LEDE
+  Source: https://github.com/coolsnowwolf/lede
+=============================================
+EOB
+fi
+
+# 6. 移除 /etc/banner 中的外链（如果存在）
+sed -i '/github\.com/d' /etc/banner 2>/dev/null
+sed -i '/https\?:\/\//d' /etc/banner 2>/dev/null
+
+# 7. 设置 SSH 欢迎信息
+cat > /etc/ssh/sshd_config.d/99-welcome << 'EOF'
+# Custom banner
+Banner /etc/banner
+EOF
+
+# 8. 设置主机名
+uci set system.@system[0].hostname='LEDE-Builder'
+uci commit system
+
+# 9. 优化网络参数
+cat >> /etc/sysctl.conf << 'EOF'
+# Custom network optimizations
+net.core.rmem_default=262144
+net.core.wmem_default=262144
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_congestion_control=bbr
+net.core.default_qdisc=fq
+EOF
+
+# 10. 设置默认密码（可选，默认 password）
+# echo "root:your_password" | chpasswd
 
 exit 0
