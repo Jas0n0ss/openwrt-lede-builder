@@ -23,7 +23,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true   # 消除 Node.js 20 警告
 
 jobs:
   build:
@@ -95,9 +95,16 @@ jobs:
             chmod +x etc/uci-defaults/* 2>/dev/null || true
           fi
 
-      - name: Generate .config from preset files
+      - name: Clean problematic packages and generate .config
         run: |
           cd lede
+          # 删除引起循环依赖或警告的包（这些包用户不需要）
+          rm -rf feeds/kenzo/luci-theme-alpha 2>/dev/null || true
+          rm -rf feeds/kenzo/luci-app-dockerman 2>/dev/null || true
+          rm -rf feeds/luci/luci-app-dae 2>/dev/null || true
+          rm -rf feeds/luci/luci-app-daed 2>/dev/null || true
+          find feeds -name "*fchomo*" -type d -exec rm -rf {} + 2>/dev/null || true
+
           if [ ! -f "${{ github.workspace }}/configs/common.config" ]; then
             echo "错误: common.config 不存在"
             exit 1
@@ -108,27 +115,24 @@ jobs:
           fi
           cat ${{ github.workspace }}/configs/common.config > .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
+          # 强制禁用有问题的包（防止被依赖选中）
+          echo "# CONFIG_PACKAGE_luci-app-fchomo is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-theme-alpha is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-app-dockerman is not set" >> .config
           make defconfig
 
-      # 关键修复：升级 Go 1.24 再编译 xray-core
       - name: Prebuild core dependencies with Go 1.24
         run: |
           cd lede
-          # 安装 Golang 1.24
-          echo "=== 安装 Golang 1.24 ==="
+          # 安装 Golang 1.24 解决 xray-core 编译问题
           wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
           sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
           export PATH=/usr/local/go/bin:$PATH
           export GOROOT=/usr/local/go
           go version
 
-          echo "=== 编译 toolchain ==="
           make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
-
-          echo "=== 编译内核 ==="
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-
-          echo "=== 编译 xray-core ==="
           make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
 
       - name: Download sources
@@ -147,7 +151,7 @@ jobs:
           if make -j$(nproc); then
             echo "编译成功: $(date)"
           else
-            echo "并行编译失败，尝试清理后单线程..."
+            echo "并行编译失败，清理后单线程重试..."
             make target/linux/clean
             make package/xray-core/clean
             make -j1 V=s
