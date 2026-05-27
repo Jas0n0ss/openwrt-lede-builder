@@ -27,14 +27,7 @@ uci commit luci
 
 # 5. 修改欢迎横幅（banner）
 if [ -f /etc/banner ]; then
-    cat > /etc/banner << 'EOB'
- ______  _       ______   _____   ______
-|  _  \| |     |  _  \ |  ___| |  _  \
-| | | || |     | | | | | |__   | | | |
-| | | || |     | | | | |  __|  | | | |
-| |_| || |___  | |_| | | |___  | |_| |
-|_____/|_____| |_____/ |_____/ |_____/
-
+    cat >> /etc/banner << 'EOB'
 =============================================
   Build by @Jas0n0ss from LEDE
   Source: https://github.com/coolsnowwolf/lede
