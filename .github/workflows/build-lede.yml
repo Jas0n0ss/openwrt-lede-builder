@@ -32,9 +32,14 @@ jobs:
       matrix:
         device: [r2s, cr660x, x86]
     name: Build LEDE for ${{ matrix.device }}
-    if: github.event.inputs.device == 'all' || github.event.inputs.device == matrix.device
 
     steps:
+      - name: Skip unwanted devices on manual trigger
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.device != 'all' && github.event.inputs.device != matrix.device
+        run: |
+          echo "跳过 ${{ matrix.device }}，仅编译 ${{ github.event.inputs.device }}"
+          exit 0
+
       - name: Checkout builder config
         uses: actions/checkout@v4
 
