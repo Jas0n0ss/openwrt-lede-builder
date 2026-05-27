@@ -16,7 +16,7 @@ on:
           - x86_64
           - raspberrypi-4b
   schedule:
-    - cron: '0 20 * * 0'
+    - cron: '0 20 * * 0'          # 每周日 20:00 UTC，可删除
 
 permissions:
   contents: write
@@ -31,10 +31,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: ${{ fromJSON(github.event_name == 'workflow_dispatch' && github.event.inputs.device != 'all' && format('["{0}"]', github.event.inputs.device) || '["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]') }}
+        device: [r2s, cr660x, ax6000, x86_64, raspberrypi-4b]
     name: Build LEDE for ${{ matrix.device }}
 
     steps:
+      - name: Skip if this device is not selected
+        if: |
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.device != 'all' &&
+          github.event.inputs.device != matrix.device
+        run: |
+          echo "跳过 ${{ matrix.device }}，仅编译 ${{ github.event.inputs.device }}"
+          exit 0
+
       - name: Checkout builder config
         uses: actions/checkout@v4
 
@@ -101,26 +110,46 @@ jobs:
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
           make defconfig
 
-      - name: Prebuild core dependencies (toolchain, kernel, xray-core)
+      # 关键修复：升级 Go 1.24 再编译 xray-core
+      - name: Prebuild core dependencies with Go 1.24
         run: |
           cd lede
+          # 安装 Golang 1.24
+          echo "=== 安装 Golang 1.24 ==="
+          wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
+          export PATH=/usr/local/go/bin:$PATH
+          export GOROOT=/usr/local/go
+          go version
+
+          echo "=== 编译 toolchain ==="
           make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
+
+          echo "=== 编译内核 ==="
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
+
+          echo "=== 编译 xray-core ==="
           make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
 
       - name: Download sources
         run: |
           cd lede
+          export PATH=/usr/local/go/bin:$PATH
+          export GOROOT=/usr/local/go
           make download -j16
 
       - name: Compile firmware
         run: |
           cd lede
+          export PATH=/usr/local/go/bin:$PATH
+          export GOROOT=/usr/local/go
           echo "开始编译 ${{ matrix.device }}: $(date)"
           if make -j$(nproc); then
             echo "编译成功: $(date)"
           else
-            echo "并行编译失败，尝试单线程..."
+            echo "并行编译失败，尝试清理后单线程..."
+            make target/linux/clean
+            make package/xray-core/clean
             make -j1 V=s
           fi
 
