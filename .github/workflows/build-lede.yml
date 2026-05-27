@@ -32,14 +32,9 @@ jobs:
       matrix:
         device: [r2s, cr660x, x86]
     name: Build LEDE for ${{ matrix.device }}
+    if: github.event.inputs.device == 'all' || github.event.inputs.device == matrix.device
 
     steps:
-      - name: Skip unwanted devices on manual trigger
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.device != 'all' && github.event.inputs.device != matrix.device
-        run: |
-          echo "跳过 ${{ matrix.device }}，仅编译 ${{ github.event.inputs.device }}"
-          exit 0
-
       - name: Checkout builder config
         uses: actions/checkout@v4
 
@@ -58,18 +53,25 @@ jobs:
             rsync unzip zlib1g-dev file wget subversion patch upx-ucl \
             ccache ecj fastjar jarwrapper java-propose-classpath libz-dev \
             libncurses5-dev libncursesw5-dev
-          sudo timedatectl set-timezone "Asia/Shanghai"
 
-      - name: Configure feeds
+      # ===== PassWall 官方方法一配置 =====
+      - name: Configure feeds (PassWall official method)
         run: |
           cd lede
-          sed -i '1i src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' feeds.conf.default
-          sed -i '2i src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' feeds.conf.default
-          sed -i '3i src-git kenzo https://github.com/kenzok8/openwrt-packages.git' feeds.conf.default
-          sed -i '4i src-git small https://github.com/kenzok8/small.git' feeds.conf.default
+          
+          # 在 feeds.conf.default 顶部插入 PassWall 官方源
+          echo 'src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main' > feeds.conf.default.new
+          echo 'src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main' >> feeds.conf.default.new
+          echo 'src-git kenzo https://github.com/kenzok8/openwrt-packages.git' >> feeds.conf.default.new
+          echo 'src-git small https://github.com/kenzok8/small.git' >> feeds.conf.default.new
+          cat feeds.conf.default >> feeds.conf.default.new
+          mv feeds.conf.default.new feeds.conf.default
+          
+          # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      # ===== 克隆额外插件 =====
       - name: Clone additional plugins
         run: |
           cd lede
@@ -78,35 +80,88 @@ jobs:
           git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd
           git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora
 
+      # ===== 生成配置文件 =====
       - name: Generate .config
         run: |
           cd lede
+          
+          # 基础配置
           cp ${{ github.workspace }}/configs/common.config .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
           echo "CONFIG_CCACHE=y" >> .config
+          
+          # 修改默认 IP
           sed -i 's/192.168.1.1/10.10.10.1/g' package/base-files/files/bin/config_generate
+          
+          # PassWall 配置
           echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall_Including_Hysteria=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-passwall_Including_V2ray=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-passwall_Including_Xray=y" >> .config
+          
+          # 强制添加 PassWall 依赖（关键修复）
+          echo "CONFIG_PACKAGE_xray-core=y" >> .config
+          echo "CONFIG_PACKAGE_sing-box=y" >> .config
+          echo "CONFIG_PACKAGE_v2ray-geodata=y" >> .config
+          echo "CONFIG_PACKAGE_geoview=y" >> .config
+          
+          # 其他插件
           echo "CONFIG_PACKAGE_luci-app-mosdns=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
           echo "CONFIG_PACKAGE_luci-theme-aurora=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-arpbind=y" >> .config
+          
+          # 禁用问题包
           echo "# CONFIG_PACKAGE_vlmcsd is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-app-vlmcsd is not set" >> .config
+          
           make defconfig
+
+      # ===== 关键修复：预编译 PassWall 核心依赖 =====
+      - name: Prebuild PassWall dependencies
+        run: |
+          cd lede
+          
+          echo "=== 预编译 toolchain ==="
+          make toolchain/compile -j$(nproc)
+          
+          echo "=== 预编译 xray-core（最关键） ==="
+          if grep -q "CONFIG_PACKAGE_xray-core=y" .config; then
+            make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
+          else
+            echo "WARNING: xray-core 未在配置中"
+          fi
+          
+          echo "=== 预编译 sing-box ==="
+          make package/sing-box/compile -j$(nproc) || echo "sing-box 编译跳过"
+          
+          echo "=== 预编译 geoview ==="
+          make package/geoview/compile -j$(nproc) || echo "geoview 编译跳过"
+          
+          echo "=== 预编译 v2ray-geodata ==="
+          make package/v2ray-geodata/compile -j$(nproc) || echo "v2ray-geodata 编译跳过"
+          
+          echo "=== PassWall 依赖预处理完成 ==="
 
       - name: Download sources
         run: |
           cd lede
           make download -j16
 
+      # ===== 编译固件（先编译依赖，再编译主包） =====
       - name: Compile firmware
         run: |
           cd lede
           echo "开始编译 ${{ matrix.device }}: $(date)"
+          
+          # 先编译 PassWall 的所有依赖包
+          echo "=== 编译 PassWall 依赖包 ==="
+          make package/feeds/passwall_packages/*/compile -j$(nproc) || true
+          
+          # 再编译 PassWall 主包
+          echo "=== 编译 PassWall 主包 ==="
+          make package/feeds/passwall_luci/luci-app-passwall/compile -j$(nproc) || true
+          
+          # 最后编译完整固件
+          echo "=== 编译完整固件 ==="
           if make -j$(nproc); then
             echo "编译成功: $(date)"
           else
@@ -118,12 +173,11 @@ jobs:
         run: |
           cd lede
           mkdir -p ../release/${{ matrix.device }}
-          find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.ext4.gz" -o -name "*.squashfs" -o -name "*.img" \) 2>/dev/null | while read file; do
-            filename=$(basename "$file")
-            cp "$file" "../release/${{ matrix.device }}/${filename}"
+          find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" \) 2>/dev/null | while read file; do
+            cp "$file" "../release/${{ matrix.device }}/"
           done
           cd ../release/${{ matrix.device }}
-          sha256sum *.{img.gz,bin,vmdk,qcow2,img} 2>/dev/null > sha256sums.txt
+          sha256sum * 2>/dev/null > sha256sums.txt
           echo "=== 生成的固件 ==="
           ls -lh
 
@@ -142,27 +196,22 @@ jobs:
           name: "LEDE Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}"
           body: |
             ## LEDE 固件自动构建
-
+            
             ### 版本信息
             - **设备**: ${{ matrix.device }}
             - **管理地址**: http://10.10.10.1
-            - **用户名**: root
-            - **密码**: password
-
+            - **用户名**: root | **密码**: password
+            
             ### 包含插件
-            - PassWall (科学上网)
-            - MosDNS (DNS转发)
+            - **PassWall** (科学上网，含 Hysteria)
+            - MosDNS (DNS 转发)
             - TurboACC (网络加速)
             - TTYD (网页终端)
             - Aurora (现代化主题)
-            - ARP绑定
-
-            ### 安装说明
-            | 设备 | 安装方法 |
-            |------|----------|
-            | R2S | 解压 .img.gz 后写入 TF 卡 |
-            | CR660x | 通过 breed 刷入 .bin 文件 |
-            | X86 | 写入硬盘或虚拟机直接使用 |
+            - ARP 绑定
+            
+            ### 依赖说明
+            - PassWall 所需依赖（xray-core、sing-box、geoview 等）已预编译
           files: |
             release/${{ matrix.device }}/*.img.gz
             release/${{ matrix.device }}/*.bin
