@@ -1,4 +1,4 @@
-name: Build LEDE Firmware for ${{ github.event.inputs.device }}
+name: Build LEDE Firmware
 
 on:
   workflow_dispatch:
