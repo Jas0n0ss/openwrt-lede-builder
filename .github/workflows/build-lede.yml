@@ -17,7 +17,6 @@ on:
           - raspberrypi-4b
   schedule:
     - cron: '0 20 * * 0'
-  # push 已被移除
 
 permissions:
   contents: write
@@ -32,11 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: ${{ fromJSON(
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.device != 'all')
-          && format('["{0}"]', github.event.inputs.device)
-          || '["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]'
-        ) }}
+        device: ${{ fromJSON(github.event_name == 'workflow_dispatch' && github.event.inputs.device != 'all' && format('["{0}"]', github.event.inputs.device) || '["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]') }}
     name: Build LEDE for ${{ matrix.device }}
 
     steps:
