@@ -27,19 +27,11 @@
 | 插件 | 说明 |
 |------|------|
 | **PassWall** | 科学上网代理平台（含 Hysteria 支持） |
-| Xray-core | PassWall 核心依赖 |
-| sing-box | 通用代理平台 |
-| v2ray-geodata | GeoIP 和 geosite 数据 |
 | **MosDNS** | DNS 转发/分流器 |
-| dnsmasq-full | DNS/DHCP 服务 |
 | **TurboACC** | 网络加速引擎 |
-| firewall4 | nftables 防火墙 |
 | **TTYD** | 网页终端 |
 | **ARP 绑定** | IP/MAC 绑定 |
 | **Aurora 主题** | 现代化 LuCI 主题 |
-| htop | 系统监控 |
-| vim | 文本编辑器 |
-| curl/wget | 网络工具 |
 
 ---
 
