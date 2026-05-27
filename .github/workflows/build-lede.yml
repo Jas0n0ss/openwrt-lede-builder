@@ -16,13 +16,14 @@ on:
           - x86_64
           - raspberrypi-4b
   schedule:
-    - cron: '0 20 * * 0'
+    - cron: '0 20 * * 0'          # 每周日 20:00 UTC（可删除）
 
 permissions:
   contents: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true   # 消除 Node.js 20 弃用警告
 
 jobs:
   build:
@@ -74,16 +75,15 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Clone additional plugins (if not already in feeds)
+      - name: Clone additional plugins
         run: |
           cd lede
-          # 这些额外插件源如果不在 feeds 中，则手动克隆
           git clone --depth 1 https://github.com/sbwml/luci-app-mosdns.git package/mosdns || true
           git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git package/turboacc || true
           git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd || true
           git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora || true
 
-      - name: Copy custom files (uci-defaults, banner, etc.)
+      - name: Copy custom files
         run: |
           cd lede
           if [ -d "${{ github.workspace }}/files" ]; then
@@ -103,10 +103,8 @@ jobs:
             echo "错误: ${{ matrix.device }}.config 不存在"
             exit 1
           fi
-          # 直接合并，不再额外 echo
           cat ${{ github.workspace }}/configs/common.config > .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
-          # 执行 defconfig
           make defconfig
 
       - name: Prebuild core dependencies (toolchain, kernel, xray-core)
