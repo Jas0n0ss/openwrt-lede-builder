@@ -24,39 +24,25 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-  NODE_OPTIONS: "--max-old-space-size=4096"
-  GOPROXY: "https://goproxy.io,direct"
-  GO111MODULE: "on"
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - id: set-matrix
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.device }}" != "all" ]; then
-            echo "matrix={\"device\":[\"${{ github.event.inputs.device }}\"]}" >> $GITHUB_OUTPUT
-          else
-            echo "matrix={\"device\":[\"r2s\",\"cr660x\",\"ax6000\",\"x86_64\",\"raspberrypi-4b\"]}" >> $GITHUB_OUTPUT
-          fi
-
   build:
-    needs: setup
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+      matrix:
+        device: [r2s, cr660x, ax6000, x86_64, raspberrypi-4b]
     name: Build LEDE for ${{ matrix.device }}
 
     steps:
-      - name: Free disk space
+      - name: Skip if this device is not selected
+        if: |
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.device != 'all' &&
+          github.event.inputs.device != matrix.device
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
-          sudo docker system prune -af || true
-          df -h
-
+          echo "跳过 ${{ matrix.device }}，仅编译 ${{ github.event.inputs.device }}"
+          exit 0
       - name: Checkout builder config
         uses: actions/checkout@v4
 
@@ -67,55 +53,33 @@ jobs:
           path: lede
           ref: master
 
-      # ===== 缓存 =====
-      - name: Cache downloads
+      # ===== 新增缓存步骤 =====
+      - name: Cache downloads (dl)
         uses: actions/cache@v4
         with:
           path: lede/dl
           key: dl-${{ matrix.device }}-${{ hashFiles('configs/common.config', 'configs/${{ matrix.device }}.config') }}
-          restore-keys: dl-${{ matrix.device }}-
-
+          restore-keys: |
+            dl-${{ matrix.device }}-
+            dl-
       - name: Cache feeds
         uses: actions/cache@v4
         with:
           path: lede/feeds
           key: feeds-${{ hashFiles('lede/feeds.conf.default') }}
-          restore-keys: feeds-
-
+          restore-keys: |
+            feeds-
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
           key: ccache-${{ matrix.device }}-${{ github.run_id }}
-          restore-keys: ccache-${{ matrix.device }}-
+          restore-keys: |
+            ccache-${{ matrix.device }}-
+            ccache-
+      # ====================
 
-      # ===== 先安装宿主工具（解决 golang/host, rust/host, node/host 问题） =====
-      - name: Install host build tools
-        run: |
-          # 安装 Go 1.24
-          wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
-          sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
-          echo "/usr/local/go/bin" >> $GITHUB_PATH
-          echo "GOROOT=/usr/local/go" >> $GITHUB_ENV
-          
-          # 安装 Rust
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          
-          # 安装 Node.js
-          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-          sudo apt install -y nodejs npm
-          
-          export PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH
-          export GOROOT=/usr/local/go
-          
-          echo "=== 工具版本 ==="
-          go version
-          rustc --version
-          node --version
-          npm --version
-
-      - name: Setup base dependencies
+      - name: Setup dependencies
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison g++ gawk \
@@ -123,20 +87,20 @@ jobs:
             rsync unzip zlib1g-dev file wget subversion patch upx-ucl \
             ccache ecj fastjar jarwrapper java-propose-classpath libz-dev \
             libncurses5-dev libncursesw5-dev
-
-      # ===== 保留 kenzo 和 small 源 =====
-      - name: Configure feeds
+      - name: Configure feeds (PassWall official method)
         run: |
           cd lede
+          cp feeds.conf.default feeds.conf.default.bak
           cat > feeds.conf.default << 'EOF'
           src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
           src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
           src-git kenzo https://github.com/kenzok8/openwrt-packages.git
           src-git small https://github.com/kenzok8/small.git
           EOF
+          cat feeds.conf.default.bak >> feeds.conf.default
+          rm feeds.conf.default.bak
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
       - name: Clone additional plugins
         run: |
           cd lede
@@ -144,71 +108,68 @@ jobs:
           git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git package/turboacc || true
           git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd || true
           git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora || true
-
       - name: Copy custom files
         run: |
           cd lede
           if [ -d "${{ github.workspace }}/files" ]; then
             cp -rf ${{ github.workspace }}/files/* ./
             chmod +x files/etc/uci-defaults/* 2>/dev/null || true
+            chmod +x etc/uci-defaults/* 2>/dev/null || true
           fi
-
-      - name: Generate .config
+      - name: Clean problematic packages and generate .config
         run: |
           cd lede
-          
-          # 删除有问题的包（但保留源）
           rm -rf feeds/kenzo/luci-theme-alpha 2>/dev/null || true
           rm -rf feeds/kenzo/luci-app-dockerman 2>/dev/null || true
-          rm -rf feeds/small/luci-app-fchomo 2>/dev/null || true
-          
+          rm -rf feeds/luci/luci-app-dae 2>/dev/null || true
+          rm -rf feeds/luci/luci-app-daed 2>/dev/null || true
+          find feeds -name "*fchomo*" -type d -exec rm -rf {} + 2>/dev/null || true
+          if [ ! -f "${{ github.workspace }}/configs/common.config" ]; then
+            echo "错误: common.config 不存在"
+            exit 1
+          fi
+          if [ ! -f "${{ github.workspace }}/configs/${{ matrix.device }}.config" ]; then
+            echo "错误: ${{ matrix.device }}.config 不存在"
+            exit 1
+          fi
           cat ${{ github.workspace }}/configs/common.config > .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
-          
+          echo "# CONFIG_PACKAGE_luci-app-fchomo is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-theme-alpha is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-app-dockerman is not set" >> .config
           make defconfig
-
-      - name: Prebuild core dependencies
+      - name: Prebuild core dependencies with Go 1.24
+        id: setup_go
         run: |
           cd lede
-          export PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH
+          wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
+          echo "GOROOT=/usr/local/go" >> $GITHUB_ENV
+          export PATH=/usr/local/go/bin:$PATH
           export GOROOT=/usr/local/go
-          
+          go version
           make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          
-          # 预编译 PassWall 的 Go 依赖
-          for pkg in xray-core sing-box hysteria geoview; do
-            make package/feeds/passwall_packages/$pkg/compile -j$(nproc) 2>/dev/null || true
-          done
-
+          make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
       - name: Download sources
         run: |
           cd lede
-          export PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH
-          export GOROOT=/usr/local/go
           make download -j16
-
       - name: Compile firmware
         run: |
           cd lede
-          export PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH
-          export GOROOT=/usr/local/go
-          
           echo "开始编译 ${{ matrix.device }}: $(date)"
-          ccache -s
-          
-          if make -j$(nproc) 2>&1 | tee build.log; then
+          ccache -s  # 显示缓存命中情况
+          if make -j$(nproc); then
             echo "编译成功: $(date)"
           else
             echo "并行编译失败，清理后单线程重试..."
             make target/linux/clean
-            for pkg in xray-core sing-box hysteria geoview; do
-              make package/feeds/passwall_packages/$pkg/clean 2>/dev/null || true
-            done
+            make package/xray-core/clean
             make -j1 V=s
           fi
-          ccache -s
-
+          ccache -s  # 显示最终缓存统计
       - name: Prepare artifacts
         run: |
           cd lede
@@ -220,7 +181,6 @@ jobs:
           sha256sum * > sha256sums.txt 2>/dev/null
           echo "=== 生成的固件 ==="
           ls -lh
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -233,12 +193,18 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: LEDE-${{ matrix.device }}-${{ github.run_number }}
-          name: "LEDE Firmware for ${{ matrix.device }}"
+          name: "LEDE Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}"
           body: |
             ## LEDE 固件自动构建
             - **设备**: ${{ matrix.device }}
             - **管理地址**: http://10.10.10.1
             - **用户名**: root | **密码**: password
-          files: release/${{ matrix.device }}/*
+          files: |
+            release/${{ matrix.device }}/*.img.gz
+            release/${{ matrix.device }}/*.bin
+            release/${{ matrix.device }}/*.vmdk
+            release/${{ matrix.device }}/*.qcow2
+            release/${{ matrix.device }}/*.sdcard.img
+            release/${{ matrix.device }}/*-sysupgrade.*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
