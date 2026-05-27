@@ -35,10 +35,8 @@ jobs:
       - id: set-matrix
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.device }}" != "all" ]; then
-            # 手动选择单个设备
             echo "matrix={\"device\":[\"${{ github.event.inputs.device }}\"]}" >> $GITHUB_OUTPUT
           else
-            # 定时触发或选择 all 时，编译所有设备
             echo "matrix={\"device\":[\"r2s\",\"cr660x\",\"ax6000\",\"x86_64\",\"raspberrypi-4b\"]}" >> $GITHUB_OUTPUT
           fi
 
@@ -51,6 +49,12 @@ jobs:
     name: Build LEDE for ${{ matrix.device }}
 
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo docker system prune -af || true
+          df -h
+
       - name: Checkout builder config
         uses: actions/checkout@v4
 
@@ -61,14 +65,7 @@ jobs:
           path: lede
           ref: master
 
-      - name: Checkout LEDE source
-        uses: actions/checkout@v4
-        with:
-          repository: coolsnowwolf/lede
-          path: lede
-          ref: master
-
-      # ===== 新增缓存步骤 =====
+      # ===== 缓存步骤 =====
       - name: Cache downloads (dl)
         uses: actions/cache@v4
         with:
@@ -95,6 +92,7 @@ jobs:
             ccache-${{ matrix.device }}-
             ccache-
 
+      # ===== 环境准备 =====
       - name: Setup dependencies
         run: |
           sudo apt update
@@ -102,9 +100,16 @@ jobs:
             gettext git libssl-dev libelf-dev python3-distutils python3-dev \
             rsync unzip zlib1g-dev file wget subversion patch upx-ucl \
             ccache ecj fastjar jarwrapper java-propose-classpath libz-dev \
-            libncurses5-dev libncursesw5-dev
+            libncurses5-dev libncursesw5-dev \
+            golang-go cargo nodejs npm curl
+          
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          source "$HOME/.cargo/env"
+          rustc --version
 
-      - name: Configure feeds (PassWall official method)
+      # ===== PassWall 官方 feeds 配置 =====
+      - name: Configure feeds
         run: |
           cd lede
           cat > feeds.conf.default << 'EOF'
@@ -113,9 +118,10 @@ jobs:
           src-git kenzo https://github.com/kenzok8/openwrt-packages.git
           src-git small https://github.com/kenzok8/small.git
           EOF
-          ./scripts/feeds update -a || { echo "ERROR: Feed update failed"; exit 1; }
-          ./scripts/feeds install -a || { echo "ERROR: Feed install failed"; exit 1; }
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
+      # ===== 额外插件 =====
       - name: Clone additional plugins
         run: |
           cd lede
@@ -124,24 +130,35 @@ jobs:
           git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd || true
           git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora || true
 
+      # ===== 安装缺失依赖 =====
+      - name: Install missing dependencies
+        run: |
+          cd lede
+          for pkg in libpam libpcre2 libev libsodium libudns libcurl libxml2 \
+                      libunistring boost luci-compat luci-proto-ipv6 bc pciutils \
+                      lm-sensors jq yq coreutils unzip wget-ssl; do
+            ./scripts/feeds install $pkg 2>/dev/null || true
+          done
+          ./scripts/feeds install -a
+
+      # ===== 自定义文件 =====
       - name: Copy custom files
         run: |
           cd lede
           if [ -d "${{ github.workspace }}/files" ]; then
             cp -rf ${{ github.workspace }}/files/* ./
             chmod +x files/etc/uci-defaults/* 2>/dev/null || true
-            chmod +x etc/uci-defaults/* 2>/dev/null || true
           fi
 
-      - name: Clean problematic packages and generate .config
+      # ===== 生成 .config（合并配置，所有 PassWall 依赖已在 common.config 中） =====
+      - name: Generate .config
         run: |
           cd lede
-          rm -rf feeds/kenzo/luci-theme-alpha 2>/dev/null || true
+          
+          # 删除有问题的包
+          rm -rf feeds/kenzo/luci-theme-alpha feeds/luci/luci-app-dae 2>/dev/null || true
           rm -rf feeds/kenzo/luci-app-dockerman 2>/dev/null || true
-          rm -rf feeds/luci/luci-app-dae 2>/dev/null || true
-          rm -rf feeds/luci/luci-app-daed 2>/dev/null || true
-          find feeds -name "*fchomo*" -type d -exec rm -rf {} + 2>/dev/null || true
-
+          
           if [ ! -f "${{ github.workspace }}/configs/common.config" ]; then
             echo "错误: common.config 不存在"
             exit 1
@@ -150,67 +167,66 @@ jobs:
             echo "错误: ${{ matrix.device }}.config 不存在"
             exit 1
           fi
+          
+          # 合并配置（common.config 已包含完整 PassWall 依赖）
           cat ${{ github.workspace }}/configs/common.config > .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
-          echo "# CONFIG_PACKAGE_luci-app-fchomo is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-theme-alpha is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-app-dockerman is not set" >> .config
+          
           make defconfig
 
-      - name: Prebuild core dependencies with Go
+      # ===== Go 1.24 环境 + 预编译核心依赖 =====
+      - name: Prebuild core dependencies with Go 1.24
         id: setup_go
         run: |
           cd lede
-          # Get latest stable Go version
-          GO_VERSION=$(curl -s https://go.dev/VERSION?m=text | head -1 | sed 's/go//' || echo "1.24.2")
-          echo "Using Go version: $GO_VERSION"
           
-          GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
-          wget -q "$GO_URL" || { 
-            echo "WARNING: Failed to download Go $GO_VERSION, using fallback"
-            wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
-          }
-          
-          sudo tar -C /usr/local -xzf go*.tar.gz
+          wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
+          sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
           echo "/usr/local/go/bin" >> $GITHUB_PATH
           echo "GOROOT=/usr/local/go" >> $GITHUB_ENV
           export PATH=/usr/local/go/bin:$PATH
           export GOROOT=/usr/local/go
+          export GOPROXY=https://goproxy.io,direct
           go version
 
           make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
+          
+          # 预编译 Go 依赖
+          for pkg in xray-core sing-box hysteria geoview; do
+            make package/feeds/passwall_packages/$pkg/compile -j$(nproc) 2>/dev/null || true
+          done
 
       - name: Download sources
         run: |
           cd lede
+          export PATH=/usr/local/go/bin:$PATH
+          export GOROOT=/usr/local/go
           make download -j16
 
+      # ===== 编译固件 =====
       - name: Compile firmware
         run: |
           cd lede
+          export PATH=/usr/local/go/bin:$PATH
+          export GOROOT=/usr/local/go
+          
           echo "开始编译 ${{ matrix.device }}: $(date)"
           ccache -s
           
-          # Attempt parallel build with reduced verbosity
-          if make -j$(nproc) -s 2>&1 | tee build.log | tail -n 20; then
-            echo "编译完成: $(date)"
+          if make -j$(nproc) 2>&1 | tee build.log; then
+            echo "编译成功: $(date)"
           else
-            BUILD_RESULT=$?
-            echo "并行编译失败 (返回码: $BUILD_RESULT)，显示错误信息..."
-            echo "::group::Build Error Details"
-            tail -n 50 build.log
-            echo "::endgroup::"
-            
-            echo "清理后单线程重试..."
-            # Full clean to reset build state
-            make clean distclean 2>/dev/null || true
-            echo "Starting single-threaded verbose rebuild..."
-            make -j1 V=s || exit 1
+            echo "并行编译失败，清理后单线程重试..."
+            make target/linux/clean
+            for pkg in xray-core sing-box hysteria geoview; do
+              make package/feeds/passwall_packages/$pkg/clean 2>/dev/null || true
+            done
+            make -j1 V=s
           fi
           ccache -s
 
+      # ===== 整理产物 =====
       - name: Prepare artifacts
         run: |
           cd lede
@@ -223,6 +239,7 @@ jobs:
           echo "=== 生成的固件 ==="
           ls -lh
 
+      # ===== 上传 Artifacts =====
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -230,6 +247,7 @@ jobs:
           path: release/${{ matrix.device }}
           retention-days: 7
 
+      # ===== 发布 Release =====
       - name: Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
@@ -238,9 +256,19 @@ jobs:
           name: "LEDE Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}"
           body: |
             ## LEDE 固件自动构建
+
+            ### 版本信息
             - **设备**: ${{ matrix.device }}
             - **管理地址**: http://10.10.10.1
             - **用户名**: root | **密码**: password
+
+            ### 包含插件
+            - **PassWall** (科学上网，含 Hysteria/V2ray/Xray)
+            - MosDNS (DNS 转发)
+            - TurboACC (网络加速)
+            - TTYD (网页终端)
+            - Aurora 主题
+            - ARP 绑定
           files: |
             release/${{ matrix.device }}/*.img.gz
             release/${{ matrix.device }}/*.bin

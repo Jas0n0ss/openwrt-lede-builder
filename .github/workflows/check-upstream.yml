@@ -22,7 +22,6 @@ jobs:
         run: |
           LATEST_COMMIT=$(curl -s https://api.github.com/repos/coolsnowwolf/lede/commits/master | jq -r '.sha')
           echo "commit=${LATEST_COMMIT}" >> $GITHUB_OUTPUT
-          echo "Latest upstream commit: ${LATEST_COMMIT}"
 
       - name: Restore cached commit
         uses: actions/cache@v4
@@ -30,35 +29,25 @@ jobs:
         with:
           path: .upstream_commit
           key: upstream-commit
-          restore-keys: upstream-commit
 
-      - name: Compare commits
-        id: compare
+      - name: Compare and trigger
         run: |
           LATEST="${{ steps.get_upstream.outputs.commit }}"
           if [ -f .upstream_commit ]; then
             CACHED=$(cat .upstream_commit)
-            echo "Cached commit: ${CACHED}"
             if [ "$LATEST" == "$CACHED" ]; then
-              echo "changed=false" >> $GITHUB_OUTPUT
+              echo "No change"
               exit 0
             fi
           fi
-          echo "changed=true" >> $GITHUB_OUTPUT
           echo "$LATEST" > .upstream_commit
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-lede.yml/dispatches \
+            -d '{"ref":"main","inputs":{"device":"all"}}'
 
       - name: Save commit to cache
-        if: steps.compare.outputs.changed == 'true'
         uses: actions/cache/save@v4
         with:
           path: .upstream_commit
           key: upstream-commit
-
-      - name: Trigger build workflow
-        if: steps.compare.outputs.changed == 'true'
-        run: |
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-lede.yml/dispatches \
-            -d '{"ref":"main","inputs":{"device":"all"}}'
