@@ -110,7 +110,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: lede/feeds
-          key: feeds-${{ hashFiles('feeds.conf.default') }}
+          key: feeds-${{ hashFiles('configs/immortalwrt/**') }}
           restore-keys: |
             feeds-
 
@@ -402,10 +402,12 @@ jobs:
 
           cd ../release/${{ matrix.device }}
 
-          if ls * >/dev/null 2>&1; then
-            sha256sum * > sha256sums.txt
+          if ! ls * >/dev/null 2>&1; then
+            echo "ERROR: no firmware artifacts found"
+            exit 1
           fi
 
+          sha256sum * > sha256sums.txt
           echo "Generated firmware files:"
           ls -lh
 
@@ -425,7 +427,7 @@ jobs:
       ########################################################################
 
       - name: Release
-        if: success()
+        if: success() && github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: LEDE-${{ matrix.device }}-${{ github.run_number }}

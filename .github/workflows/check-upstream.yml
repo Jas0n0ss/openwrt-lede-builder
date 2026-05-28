@@ -49,7 +49,8 @@ jobs:
           LEDE_LATEST="${{ steps.lede.outputs.commit }}"
           IMM_LATEST="${{ steps.immortal.outputs.commit }}"
 
-          TRIGGER=false
+          LEDE_TRIGGER=false
+          IMM_TRIGGER=false
 
           # ===== 修复点：避免 file/dir 冲突 =====
           if [ -e .upstream_commit ] && [ ! -d .upstream_commit ]; then
@@ -67,10 +68,10 @@ jobs:
             OLD=$(cat .upstream_commit/lede)
             if [ "$OLD" != "$LEDE_LATEST" ]; then
               echo "LEDE updated"
-              TRIGGER=true
+              LEDE_TRIGGER=true
             fi
           else
-            TRIGGER=true
+            LEDE_TRIGGER=true
           fi
           echo "$LEDE_LATEST" > .upstream_commit/lede
 
@@ -81,32 +82,44 @@ jobs:
             OLD=$(cat .upstream_commit/immortalwrt)
             if [ "$OLD" != "$IMM_LATEST" ]; then
               echo "ImmortalWrt updated"
-              TRIGGER=true
+              IMM_TRIGGER=true
             fi
           else
-            TRIGGER=true
+            IMM_TRIGGER=true
           fi
           echo "$IMM_LATEST" > .upstream_commit/immortalwrt
 
           ####################################
           # trigger build workflow
           ####################################
-          if [ "$TRIGGER" = true ]; then
-            echo "Trigger build-lede-immortalwrt.yml"
-
-            curl -s -X POST \
+          trigger_workflow() {
+            local workflow="$1"
+            local payload="$2"
+            local code
+            code=$(curl -s -o /tmp/trigger_resp.json -w "%{http_code}" -X POST \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github+json" \
-              https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-lede-immortalwrt.yml/dispatches \
-              -d '{"ref":"main","inputs":{"source":"immortalwrt","device":"all"}}'
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/${workflow}/dispatches" \
+              -d "$payload")
+            if [ "$code" != "204" ]; then
+              echo "Failed to trigger ${workflow} (HTTP ${code})"
+              cat /tmp/trigger_resp.json
+              exit 1
+            fi
+            echo "Triggered ${workflow}"
+          }
 
-            curl -s -X POST \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github+json" \
-              https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-lede-immortalwrt.yml/dispatches \
-              -d '{"ref":"main","inputs":{"source":"lede","device":"all"}}'
+          if [ "$LEDE_TRIGGER" = true ]; then
+            trigger_workflow "build-lede.yml" '{"ref":"main","inputs":{"device":"all"}}'
+            trigger_workflow "build-lede-immortalwrt.yml" '{"ref":"main","inputs":{"source":"lede","device":"all"}}'
+          fi
 
-          else
+          if [ "$IMM_TRIGGER" = true ]; then
+            trigger_workflow "build-immortalwrt.yml" '{"ref":"main","inputs":{"device":"all"}}'
+            trigger_workflow "build-lede-immortalwrt.yml" '{"ref":"main","inputs":{"source":"immortalwrt","device":"all"}}'
+          fi
+
+          if [ "$LEDE_TRIGGER" != true ] && [ "$IMM_TRIGGER" != true ]; then
             echo "No upstream changes detected"
           fi
 
