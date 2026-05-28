@@ -63,6 +63,11 @@ echo "==> Purging kenzo/small feeds (stale cache / Kconfig noise)"
 sed -i '\|kenzok8/openwrt-packages|d; \|kenzok8/small|d' feeds.conf.default 2>/dev/null || true
 rm -rf feeds/small feeds/kenzo package/feeds/small package/feeds/feeds/kenzo 2>/dev/null || true
 rm -rf package/feeds/small package/feeds/kenzo 2>/dev/null || true
+while IFS= read -r dir; do
+  [ -n "$dir" ] || continue
+  rm -rf "$dir"
+  echo "==> Removed broken nftables feed dup: ${dir}"
+done < <(find feeds package/feeds -maxdepth 5 -type d \( -name nftables-json -o -name nftables-nojson \) 2>/dev/null || true)
 
 echo "==> Removing conflicting feed packages"
 if [ -d feeds/kenzo ]; then

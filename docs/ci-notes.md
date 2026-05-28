@@ -40,6 +40,12 @@
 
 已关闭 `INCLUDE_OFFLOADING`（`kmod-fast-classifier` / shortcut-fe 仅部分平台存在）。保留 BBR + nft-fullcone。
 
+**不要**在 `.config` 里写 `CONFIG_PACKAGE_kmod-nft-fullcone=y`：会与 `luci-app-turboacc` 的 `DEPENDS`/`select` 形成 Kconfig 环；只开 `luci-app-turboacc` + `INCLUDE_NFT_FULLCONE` 即可。
+
+## dnsmasq-full
+
+不要在 `common.config` 里写 `CONFIG_PACKAGE_dnsmasq-full=y`。使用 `configs/snippets/dnsmasq-full.config`：禁用默认 `dnsmasq`、启用 `dnsmasq-full`，且 **关闭** `dnsmasq_full_nftset`（避免与 `nftables-json` 的 Kconfig 环）。
+
 ## 缓存
 
 `feeds-*-v6-*` / `dl-*-v6-*`：setup 逻辑或 `extract-kconfig-packages` 变更时递增版本，避免旧 feeds 树（含 kenzo/small）被复用。setup 会删除 `package/feeds/small` 残留。

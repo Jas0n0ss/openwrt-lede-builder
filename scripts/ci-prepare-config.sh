@@ -33,8 +33,18 @@ else
 fi
 
 cat "${WORKSPACE}/configs/custom-plugins.config" >> .config
+cat "${WORKSPACE}/configs/snippets/dnsmasq-full.config" >> .config
 cat "${WORKSPACE}/configs/snippets/no-rust-passwall.config" >> .config
 cat "${WORKSPACE}/configs/snippets/no-selinux.config" >> .config
+cat "${WORKSPACE}/configs/snippets/no-nftables-json-dup.config" >> .config
+
+# Strip lines that force Kconfig cycles when merged with defconfig
+sed -i \
+  -e '/^CONFIG_PACKAGE_kmod-nft-fullcone=y$/d' \
+  -e '/^CONFIG_PACKAGE_kmod-nft-offload=y$/d' \
+  -e '/^CONFIG_PACKAGE_kmod-tcp-bbr=y$/d' \
+  -e '/^CONFIG_PACKAGE_dnsmasq_full_nftset=y$/d' \
+  .config
 
 echo "CONFIG_DEVEL=y" >> .config
 echo "CONFIG_CCACHE=y" >> .config

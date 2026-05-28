@@ -99,14 +99,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/dl
-          key: dl-${{ env.REPO }}-v6-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh', 'scripts/ci-prepare-config.sh', 'scripts/lib/extract-kconfig-packages.sh') }}
+          key: dl-${{ env.REPO }}-v7-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh', 'scripts/ci-prepare-config.sh', 'scripts/lib/extract-kconfig-packages.sh') }}
           restore-keys: dl-${{ env.REPO }}-
 
       - name: Cache feeds
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/feeds
-          key: feeds-${{ env.REPO }}-v6-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh', 'scripts/ci-prepare-config.sh', 'scripts/lib/extract-kconfig-packages.sh') }}
+          key: feeds-${{ env.REPO }}-v7-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh', 'scripts/ci-prepare-config.sh', 'scripts/lib/extract-kconfig-packages.sh') }}
           restore-keys: feeds-${{ env.REPO }}-
 
       - name: Cache ccache

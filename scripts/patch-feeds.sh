@@ -45,17 +45,15 @@ strip_conflicting_feed_dirs() {
     luci-app-unblockneteasemusic
     luci-ssl
     nftables-json
+    nftables-nojson
   )
-  local feed name dir
-  for feed in feeds/kenzo feeds/small; do
-    [ -d "$feed" ] || continue
-    for name in "${names[@]}"; do
-      while IFS= read -r dir; do
-        [ -n "$dir" ] || continue
-        rm -rf "$dir"
-        echo "==> Removed conflicting feed package: ${dir}"
-      done < <(find "$feed" -maxdepth 3 -type d -name "$name" 2>/dev/null || true)
-    done
+  local name dir
+  for name in "${names[@]}"; do
+    while IFS= read -r dir; do
+      [ -n "$dir" ] || continue
+      rm -rf "$dir"
+      echo "==> Removed conflicting feed package: ${dir}"
+    done < <(find feeds package/feeds -maxdepth 5 -type d -name "$name" 2>/dev/null || true)
   done
 }
 
