@@ -2,11 +2,10 @@
 # Setup feeds and clone custom packages for OpenWrt/LEDE builds.
 # Usage: setup-custom-packages.sh <src_dir> [lede|append] [config_root]
 #
-# Keeps kenzo + small feeds for third-party dependency sources, but does NOT
-# run "feeds install -a" (that symlinks every package in packages/luci feeds
-# and floods the log with warnings). Instead:
-#   - feeds install -p kenzo / -p small / passwall feeds
-#   - explicit base libs + packages listed in builder .config files
+# Does NOT run "feeds install -a" or bulk kenzo/small install (Kconfig cycles).
+# Instead:
+#   - feeds install -p passwall_* + targeted packages from builder .config
+#   - scripts/patch-feeds.sh pins xray-core for golang/host 1.21
 
 set -euo pipefail
 
@@ -21,16 +20,12 @@ PASSWALL_FEEDS='
 src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
 src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
 '
-KENZO_SMALL_FEEDS='
-src-git kenzo https://github.com/kenzok8/openwrt-packages.git
-src-git small https://github.com/kenzok8/small.git
-'
+# kenzo/small bulk install causes Kconfig cycles (luci-ssl, unblockneteasemusic, nftables-json).
 
 echo "==> Configuring feeds (mode: $FEED_MODE)"
 if [ "$FEED_MODE" = "lede" ]; then
   cat > feeds.conf.default << EOF
 ${PASSWALL_FEEDS}
-${KENZO_SMALL_FEEDS}
 src-git packages https://git.openwrt.org/feed/packages.git;openwrt-23.05
 src-git luci https://git.openwrt.org/project/luci.git;openwrt-23.05
 EOF
@@ -42,7 +37,6 @@ else
   }
   while IFS= read -r line; do append_feed_line "$line"; done << EOF
 ${PASSWALL_FEEDS}
-${KENZO_SMALL_FEEDS}
 EOF
 fi
 
@@ -74,18 +68,18 @@ BASE_PACKAGES=(
   ttyd luci-app-ttyd libwebsockets-full libuv libjson-c libcap
   kmod-nft-offload kmod-nft-fullcone kmod-tcp-bbr
   jsonfilter v2ray-geoip v2ray-geosite
+  golang
 )
 
 for pkg in "${BASE_PACKAGES[@]}"; do
   install_pkg "$pkg" || echo "Skip feed package: $pkg"
 done
 
-# PassWall + kenzo/small (third-party dependency trees; not full packages/luci -a)
+# PassWall only (avoid kenzo/small bulk install → Kconfig recursive deps)
 ./scripts/feeds install -p passwall_packages 2>/dev/null || true
 ./scripts/feeds install -p passwall_luci 2>/dev/null || true
-echo "==> Installing kenzo + small feed packages (dependency sources)"
-./scripts/feeds install -p kenzo 2>/dev/null || true
-./scripts/feeds install -p small 2>/dev/null || true
+
+bash "${SCRIPT_DIR}/patch-feeds.sh" "$(pwd)"
 
 # Packages explicitly enabled in builder configs (any feed)
 echo "==> Installing packages from builder config files"

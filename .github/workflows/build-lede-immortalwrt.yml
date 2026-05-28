@@ -112,7 +112,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: src/dl
-          key: dl-${{ needs.setup.outputs.repo }}-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh') }}
+          key: dl-${{ needs.setup.outputs.repo }}-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh') }}
           restore-keys: |
             dl-${{ needs.setup.outputs.repo }}-
 
@@ -120,7 +120,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: src/feeds
-          key: feeds-${{ needs.setup.outputs.repo }}-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh') }}
+          key: feeds-${{ needs.setup.outputs.repo }}-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh') }}
           restore-keys: |
             feeds-${{ needs.setup.outputs.repo }}-
 
@@ -184,26 +184,15 @@ jobs:
           echo "CONFIG_CCACHE=y" >> .config
           make defconfig
 
-      - name: Setup Go
-        run: |
-          GO_VERSION="1.24.2"
-          wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
-          sudo rm -rf /usr/local/go
-          sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
-          echo "/usr/local/go/bin" >> $GITHUB_PATH
-          echo "GOROOT=/usr/local/go" >> $GITHUB_ENV
-
       - name: Download sources
         run: |
           cd src
-          export PATH=/usr/local/go/bin:$PATH
-          make download -j8 || make download -j1 V=s
+          make download -j16 || make download -j8
 
       - name: Build firmware
         run: |
           cd src
-          export PATH="/usr/lib/ccache:/usr/local/go/bin:$PATH"
-          export GOROOT=/usr/local/go
+          export PATH="/usr/lib/ccache:$PATH"
           ulimit -n 65535
 
           ccache -s || true

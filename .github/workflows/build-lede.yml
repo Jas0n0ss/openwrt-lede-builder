@@ -85,7 +85,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: lede/dl
-          key: dl-lede-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh') }}
+          key: dl-lede-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh') }}
           restore-keys: |
             dl-lede-
 
@@ -93,7 +93,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: lede/feeds
-          key: feeds-lede-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh') }}
+          key: feeds-lede-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh') }}
           restore-keys: |
             feeds-lede-
 
@@ -145,40 +145,22 @@ jobs:
           echo "CONFIG_CCACHE=y" >> .config
           make defconfig
 
-      - name: Prebuild core dependencies with Go 1.24
-        id: setup_go
-        run: |
-          cd lede
-          wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
-          sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
-          echo "/usr/local/go/bin" >> $GITHUB_PATH
-          echo "GOROOT=/usr/local/go" >> $GITHUB_ENV
-          export PATH="/usr/lib/ccache:/usr/local/go/bin:$PATH"
-          export GOROOT=/usr/local/go
-          go version
-          make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
-          make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
-
       - name: Download sources
         run: |
           cd lede
-          make download -j16
+          make download -j16 || make download -j8
 
       - name: Compile firmware
         run: |
           cd lede
-          export PATH="/usr/lib/ccache:/usr/local/go/bin:$PATH"
-          export GOROOT=/usr/local/go
+          export PATH="/usr/lib/ccache:$PATH"
           ulimit -n 65535
           echo "开始编译 ${{ matrix.device }} (platform=${{ steps.cache.outputs.platform }}): $(date)"
           ccache -s || true
           if make -j$(nproc); then
             echo "编译成功: $(date)"
           else
-            echo "并行编译失败，清理后单线程重试..."
-            make target/linux/clean
-            make package/xray-core/clean
+            echo "并行编译失败，单线程重试..."
             make -j1 V=s
           fi
           ccache -s

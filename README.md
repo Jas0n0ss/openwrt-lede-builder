@@ -35,7 +35,7 @@ Jas0n0ss-<lede|immortalwrt>-<代号>-<设备名>-<平台>-<类型>.<后缀>
 
 示例：`Jas0n0ss-lede-r2s-nanopi-r2s-rockchip-armv8-sysupgrade.img.gz`
 
-编译缓存策略见 [docs/build-speed.md](docs/build-speed.md)。
+编译缓存见 [docs/build-speed.md](docs/build-speed.md)；CI 排错见 [docs/ci-notes.md](docs/ci-notes.md)。
 
 ## 预装内容
 

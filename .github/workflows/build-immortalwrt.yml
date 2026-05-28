@@ -88,7 +88,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: immortalwrt/dl
-          key: dl-immortalwrt-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh') }}
+          key: dl-immortalwrt-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh') }}
           restore-keys: |
             dl-immortalwrt-
 
@@ -96,7 +96,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: immortalwrt/feeds
-          key: feeds-immortalwrt-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh') }}
+          key: feeds-immortalwrt-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh') }}
           restore-keys: |
             feeds-immortalwrt-
 
@@ -148,26 +148,15 @@ jobs:
           echo "CONFIG_CCACHE=y" >> .config
           make defconfig
 
-      - name: Setup Go
-        run: |
-          GO_VERSION="1.24.2"
-          wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
-          sudo rm -rf /usr/local/go
-          sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
-          echo "/usr/local/go/bin" >> $GITHUB_PATH
-          echo "GOROOT=/usr/local/go" >> $GITHUB_ENV
-
       - name: Download sources
         run: |
           cd immortalwrt
-          export PATH=/usr/local/go/bin:$PATH
-          make download -j8 || make download -j1 V=s
+          make download -j16 || make download -j8
 
       - name: Build firmware
         run: |
           cd immortalwrt
-          export PATH="/usr/lib/ccache:/usr/local/go/bin:$PATH"
-          export GOROOT=/usr/local/go
+          export PATH="/usr/lib/ccache:$PATH"
           ulimit -n 65535
           echo "Build ImmortalWrt ${{ matrix.device }} (platform=${{ steps.cache.outputs.platform }}): $(date)"
           ccache -s || true
