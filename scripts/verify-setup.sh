@@ -33,8 +33,8 @@ if [ ! -f feeds/passwall_luci/luci-app-passwall/Makefile ] \
 fi
 
 if [ "$MODE" = "full" ]; then
-  for pkg in luci-app-mosdns luci-app-turboacc luci-theme-aurora; do
-    [ -d "package/${pkg}" ] || fail "missing custom package/${pkg}"
+  for pkg in luci-app-mosdns luci-app-turboacc luci-theme-aurora luci-app-arpbind; do
+    [ -f "package/${pkg}/Makefile" ] || fail "missing custom package/${pkg}/Makefile"
   done
 fi
 

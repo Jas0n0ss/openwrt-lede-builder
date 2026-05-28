@@ -1,22 +1,15 @@
 #!/usr/bin/env bash
 # Setup feeds and clone custom packages for OpenWrt/LEDE builds.
 # Usage: setup-custom-packages.sh <src_dir> [append] [config_root]
-#
-# Always appends PassWall feeds to the tree's feeds.conf.default (never replaces LEDE feeds).
-# Does NOT bulk-install kenzo/small (Kconfig cycles). Pins Go packages via patch-feeds.sh.
 
 set -euo pipefail
 
-SRC_DIR="${1:?source directory required (e.g. lede or src)}"
+SRC_DIR="${1:?source directory required}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_ROOT="${3:-${SCRIPT_DIR}/../configs}"
+EXTRACT_PKG="${SCRIPT_DIR}/lib/extract-kconfig-packages.sh"
 
 cd "$SRC_DIR"
-
-PASSWALL_FEEDS='
-src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
-src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
-'
 
 append_feed_line() {
   local line="$1"
@@ -25,11 +18,41 @@ append_feed_line() {
   grep -qF "$line" feeds.conf.default 2>/dev/null || echo "$line" >> feeds.conf.default
 }
 
+install_pkg() {
+  local pkg="$1"
+  # Custom clones live under package/ — not in feeds index
+  if [ -f "package/${pkg}/Makefile" ]; then
+    return 0
+  fi
+  ./scripts/feeds install "$pkg" 2>/dev/null
+}
+
+clone_repo() {
+  local dest="$1"
+  shift
+  rm -rf "$dest"
+  git clone --depth 1 "$@" "$dest"
+}
+
+verify_makefile() {
+  local path="$1"
+  local name="$2"
+  [ -f "$path" ] || {
+    echo "ERROR: ${name} install failed (no ${path})" >&2
+    exit 1
+  }
+}
+
 echo "==> Appending PassWall feeds to feeds.conf.default"
 if [ ! -f feeds.conf.default ]; then
   echo "ERROR: feeds.conf.default not found in $(pwd)" >&2
   exit 1
 fi
+
+PASSWALL_FEEDS='
+src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
+src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
+'
 while IFS= read -r line; do append_feed_line "$line"; done << EOF
 ${PASSWALL_FEEDS}
 EOF
@@ -38,7 +61,8 @@ EOF
 
 echo "==> Purging kenzo/small feeds (stale cache / Kconfig noise)"
 sed -i '\|kenzok8/openwrt-packages|d; \|kenzok8/small|d' feeds.conf.default 2>/dev/null || true
-rm -rf feeds/small feeds/kenzo package/feeds/small package/feeds/kenzo 2>/dev/null || true
+rm -rf feeds/small feeds/kenzo package/feeds/small package/feeds/feeds/kenzo 2>/dev/null || true
+rm -rf package/feeds/small package/feeds/kenzo 2>/dev/null || true
 
 echo "==> Removing conflicting feed packages"
 if [ -d feeds/kenzo ]; then
@@ -50,13 +74,7 @@ while IFS= read -r dir; do
   rm -rf "$dir"
 done < <(find feeds -name '*fchomo*' -type d 2>/dev/null || true)
 
-echo "==> Installing required feed packages (targeted)"
-install_pkg() {
-  local pkg="$1"
-  ./scripts/feeds install "$pkg"
-}
-
-# Base libraries (failures are non-fatal; PassWall install is mandatory)
+echo "==> Installing base feed packages (optional failures ignored)"
 BASE_PACKAGES=(
   pcre2 libpcre2 libpcre2-8 libxml2 libunistring
   libev libsodium c-ares libcurl libudns
@@ -69,9 +87,8 @@ BASE_PACKAGES=(
   jsonfilter v2ray-geoip v2ray-geosite
   golang
 )
-
 for pkg in "${BASE_PACKAGES[@]}"; do
-  install_pkg "$pkg" 2>/dev/null || echo "    skip optional feed package: $pkg"
+  install_pkg "$pkg" || echo "    skip optional feed package: ${pkg}"
 done
 
 echo "==> Installing PassWall feeds (required)"
@@ -87,35 +104,40 @@ TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 if [ ! -d package/luci-app-mosdns ]; then
-  git clone --depth 1 -b v5 https://github.com/sbwml/luci-app-mosdns "$TMPDIR/mosdns-src"
+  clone_repo "$TMPDIR/mosdns-src" -b v5 https://github.com/sbwml/luci-app-mosdns
   cp -a "$TMPDIR/mosdns-src/luci-app-mosdns" "$TMPDIR/mosdns-src/mosdns" "$TMPDIR/mosdns-src/v2dat" package/
+  verify_makefile package/luci-app-mosdns/Makefile "MosDNS"
+  verify_makefile package/mosdns/Makefile "mosdns"
   echo "    installed MosDNS"
 fi
 
 if [ ! -d package/luci-app-turboacc ]; then
-  git clone --depth 1 -b luci https://github.com/chenmozhijin/turboacc "$TMPDIR/turboacc-luci"
-  git clone --depth 1 -b package https://github.com/chenmozhijin/turboacc "$TMPDIR/turboacc-pkg"
+  clone_repo "$TMPDIR/turboacc-luci" -b luci https://github.com/chenmozhijin/turboacc
+  clone_repo "$TMPDIR/turboacc-pkg" -b package https://github.com/chenmozhijin/turboacc
   cp -a "$TMPDIR/turboacc-luci/luci-app-turboacc" package/
   cp -a "$TMPDIR/turboacc-pkg/nft-fullcone" package/ 2>/dev/null || true
+  verify_makefile package/luci-app-turboacc/Makefile "TurboACC"
   echo "    installed TurboACC"
 fi
 
 if [ ! -d package/luci-theme-aurora ]; then
-  git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
+  clone_repo package/luci-theme-aurora https://github.com/eamonxg/luci-theme-aurora.git
+  verify_makefile package/luci-theme-aurora/Makefile "Aurora"
   echo "    installed Aurora theme"
 fi
 
 if [ ! -d package/luci-app-arpbind ]; then
-  git clone --depth 1 --filter=blob:none --sparse https://github.com/immortalwrt/luci "$TMPDIR/immortal-luci"
+  clone_repo "$TMPDIR/immortal-luci" --filter=blob:none --sparse https://github.com/immortalwrt/luci
   (
     cd "$TMPDIR/immortal-luci"
     git sparse-checkout set applications/luci-app-arpbind
   )
   cp -a "$TMPDIR/immortal-luci/applications/luci-app-arpbind" package/
+  verify_makefile package/luci-app-arpbind/Makefile "luci-app-arpbind"
   echo "    installed luci-app-arpbind"
 fi
 
-echo "==> Installing packages from builder config files"
+echo "==> Installing feed packages referenced in builder configs"
 CONFIG_FILES=(
   "$CONFIG_ROOT/lede/common.config"
   "$CONFIG_ROOT/immortalwrt/common.config"
@@ -125,9 +147,11 @@ for cfg in "${CONFIG_FILES[@]}"; do
   [ -f "$cfg" ] || continue
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
-    install_pkg "$pkg" 2>/dev/null || echo "    skip config package: $pkg"
-  done < <(grep -E '^CONFIG_PACKAGE_[^=]+=y' "$cfg" | sed 's/^CONFIG_PACKAGE_//;s/=y$//')
+    install_pkg "$pkg" || echo "    skip config package: ${pkg}"
+  done < <("$EXTRACT_PKG" "$cfg")
 done
 
+# feeds install may refresh passwall tree — re-apply Go version pins
+bash "${SCRIPT_DIR}/patch-feeds.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/verify-setup.sh" "$(pwd)" full
 echo "==> Custom package setup finished"

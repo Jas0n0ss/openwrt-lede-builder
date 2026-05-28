@@ -42,7 +42,21 @@
 
 ## 缓存
 
-`feeds-*-v4-*` key 用于避开含 kenzo/small 的旧 feeds 缓存；setup 会删除 `package/feeds/small` 残留。
+`feeds-*-v6-*` / `dl-*-v6-*`：setup 逻辑或 `extract-kconfig-packages` 变更时递增版本，避免旧 feeds 树（含 kenzo/small）被复用。setup 会删除 `package/feeds/small` 残留。
+
+## CONFIG_PACKAGE 解析
+
+`setup-custom-packages.sh` 用 [`scripts/lib/extract-kconfig-packages.sh`](../scripts/lib/extract-kconfig-packages.sh) 从 config 提取包名，**排除** `*_INCLUDE_*` / `*_Including_*`（如 TurboACC 子选项、PassWall 组件开关），避免误执行 `feeds install`。config 驱动安装后仍会再跑 `patch-feeds.sh`。
+
+## setup 校验
+
+- `verify-setup.sh feeds`：PassWall + xray/sing-box 版本
+- `verify-setup.sh full`：MosDNS / TurboACC / Aurora / arpbind 的 `package/*/Makefile`
+- 克隆失败立即 `exit 1`（不再静默继续）
+
+## matrix / GITHUB_OUTPUT
+
+`ci-resolve-build.sh` 仅向 stdout 写 `repo=`、`upstream=`、`matrix=`；`ci-validate-configs.sh` 日志走 stderr，避免污染 `GITHUB_OUTPUT`。
 
 ## Actions Node 警告
 

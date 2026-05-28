@@ -7,6 +7,7 @@ set -euo pipefail
 SOURCE="${1:-immortalwrt}"
 DEVICE="${2:-all}"
 EVENT="${3:-schedule}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 case "$SOURCE" in
   lede)
@@ -24,7 +25,9 @@ case "$SOURCE" in
 esac
 
 if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$DEVICE" ] && [ "$DEVICE" != "all" ]; then
-  bash "$(dirname "$0")/device-matrix.sh" "$DEVICE"
+  bash "${SCRIPT_DIR}/device-matrix.sh" "$DEVICE"
 else
-  bash "$(dirname "$0")/device-matrix.sh" all
+  bash "${SCRIPT_DIR}/device-matrix.sh" all
 fi
+
+bash "${SCRIPT_DIR}/ci-validate-configs.sh" "$SOURCE" "$DEVICE"

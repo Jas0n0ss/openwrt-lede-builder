@@ -9,6 +9,11 @@ DEVICE="${2:?device key}"
 WORKSPACE="${3:?builder repo root}"
 SRC_DIR="${4:?openwrt source dir}"
 
+case "$REPO" in
+  lede|immortalwrt) ;;
+  *) echo "ERROR: invalid repo '$REPO'" >&2; exit 1 ;;
+esac
+
 CONFIG_DIR="${WORKSPACE}/configs/${REPO}"
 COMMON="${CONFIG_DIR}/common.config"
 DEVICE_CFG="${CONFIG_DIR}/${DEVICE}.config"

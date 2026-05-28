@@ -9,7 +9,10 @@ cd "$SRC_DIR"
 
 pin_pkg_makefile() {
   local mk="$1" ver="$2" hash="$3" label="$4"
-  [ -f "$mk" ] || return 0
+  [ -f "$mk" ] || {
+    echo "ERROR: missing ${mk} (PassWall feed not installed?)" >&2
+    exit 1
+  }
 
   if grep -q "PKG_VERSION:=${ver}" "$mk"; then
     echo "==> ${label} already at ${ver}"
@@ -50,7 +53,7 @@ strip_conflicting_feed_dirs() {
       while IFS= read -r dir; do
         [ -n "$dir" ] || continue
         rm -rf "$dir"
-        echo "==> Removed conflicting feed package: $dir"
+        echo "==> Removed conflicting feed package: ${dir}"
       done < <(find "$feed" -maxdepth 3 -type d -name "$name" 2>/dev/null || true)
     done
   done
