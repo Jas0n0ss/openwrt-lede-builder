@@ -30,8 +30,6 @@ permissions:
 
 env:
   TZ: Asia/Shanghai
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   CCACHE_DIR: ~/.ccache
   CCACHE_COMPRESS: "true"
   CCACHE_COMPRESSLEVEL: "6"
@@ -44,7 +42,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: set-matrix
         run: |
           DEVICE="${{ github.event.inputs.device }}"
@@ -65,10 +63,10 @@ jobs:
 
     steps:
       - name: Checkout builder config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout ImmortalWrt source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: immortalwrt/immortalwrt
           ref: master
@@ -87,7 +85,7 @@ jobs:
           df -h
 
       - name: Cache downloads (dl)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: immortalwrt/dl
           key: dl-immortalwrt-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh') }}
@@ -95,7 +93,7 @@ jobs:
             dl-immortalwrt-
 
       - name: Cache feeds
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: immortalwrt/feeds
           key: feeds-immortalwrt-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh') }}
@@ -103,7 +101,7 @@ jobs:
             feeds-immortalwrt-
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ccache
           key: ccache-immortalwrt-${{ steps.cache.outputs.platform }}-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config') }}
@@ -188,7 +186,7 @@ jobs:
             "../release/${{ matrix.device }}"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: immortalwrt-${{ matrix.device }}
           path: release/${{ matrix.device }}
@@ -196,7 +194,7 @@ jobs:
 
       - name: Release
         if: success() && github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: Jas0n0ss-immortalwrt-${{ matrix.device }}-${{ github.run_number }}
           name: "Jas0n0ss ImmortalWrt — ${{ matrix.device }} (#${{ github.run_number }})"

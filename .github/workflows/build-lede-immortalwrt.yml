@@ -39,8 +39,6 @@ permissions:
 
 env:
   TZ: Asia/Shanghai
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   CCACHE_DIR: ~/.ccache
   CCACHE_COMPRESS: "true"
   CCACHE_COMPRESSLEVEL: "6"
@@ -55,7 +53,7 @@ jobs:
       upstream: ${{ steps.out.outputs.upstream }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: out
         run: |
           REPO="${{ github.event.inputs.source }}"
@@ -89,10 +87,10 @@ jobs:
 
     steps:
       - name: Checkout builder config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ needs.setup.outputs.upstream }}
           ref: master
@@ -111,7 +109,7 @@ jobs:
           df -h
 
       - name: Cache downloads (dl)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: src/dl
           key: dl-${{ needs.setup.outputs.repo }}-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh') }}
@@ -119,7 +117,7 @@ jobs:
             dl-${{ needs.setup.outputs.repo }}-
 
       - name: Cache feeds
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: src/feeds
           key: feeds-${{ needs.setup.outputs.repo }}-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh') }}
@@ -127,7 +125,7 @@ jobs:
             feeds-${{ needs.setup.outputs.repo }}-
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ccache
           key: ccache-${{ needs.setup.outputs.repo }}-${{ steps.cache.outputs.platform }}-${{ hashFiles('configs/**', 'configs/custom-plugins.config') }}
@@ -223,7 +221,7 @@ jobs:
             "../release/${{ matrix.device }}"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ needs.setup.outputs.repo }}-${{ matrix.device }}
           path: release/${{ matrix.device }}
@@ -231,7 +229,7 @@ jobs:
 
       - name: Release
         if: success() && github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: Jas0n0ss-${{ needs.setup.outputs.repo }}-${{ matrix.device }}-${{ github.run_number }}
           name: "Jas0n0ss OpenWrt (${{ needs.setup.outputs.repo }}) — ${{ matrix.device }} (#${{ github.run_number }})"
