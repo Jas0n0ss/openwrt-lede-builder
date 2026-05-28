@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Setup feeds and clone custom packages for OpenWrt/LEDE builds.
 # Usage: setup-custom-packages.sh <src_dir> [lede|append]
+#
+# Only installs feeds/packages required by configs/common.config and
+# configs/custom-plugins.config. Does NOT run "feeds install -a".
 
 set -euo pipefail
 
@@ -14,50 +17,54 @@ if [ "$FEED_MODE" = "lede" ]; then
   cat > feeds.conf.default << 'EOF'
 src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
 src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
-src-git kenzo https://github.com/kenzok8/openwrt-packages.git
-src-git small https://github.com/kenzok8/small.git
 src-git packages https://git.openwrt.org/feed/packages.git;openwrt-23.05
 src-git luci https://git.openwrt.org/project/luci.git;openwrt-23.05
 EOF
 else
-  cat >> feeds.conf.default << 'EOF'
+  # Append PassWall feeds only; keep upstream feeds.conf (ImmortalWrt/LEDE defaults).
+  if ! grep -q 'passwall_packages' feeds.conf.default 2>/dev/null; then
+    cat >> feeds.conf.default << 'EOF'
 
 src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
 src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
-src-git kenzo https://github.com/kenzok8/openwrt-packages.git
-src-git small https://github.com/kenzok8/small.git
 
 EOF
+  fi
 fi
 
-./scripts/feeds update -a || ./scripts/feeds update -a
+./scripts/feeds update -a
 
-echo "==> Removing conflicting feed packages"
-rm -rf feeds/kenzo/luci-theme-alpha feeds/kenzo/luci-app-dockerman 2>/dev/null || true
-rm -rf feeds/luci/luci-app-dae feeds/luci/luci-app-daed 2>/dev/null || true
-find feeds -name "*fchomo*" -type d -exec rm -rf {} + 2>/dev/null || true
+echo "==> Installing required feed packages (targeted only)"
+install_pkg() {
+  local pkg="$1"
+  if ./scripts/feeds install "$pkg" 2>/dev/null; then
+    return 0
+  fi
+  echo "Skip feed package: $pkg"
+  return 1
+}
 
-echo "==> Installing feed dependencies"
-FEED_PACKAGES=(
-  bc pciutils lm-sensors wsdd2 luci-app-ksmbd luci-app-samba4
-  libpam ddns-scripts wget-ssl luci-compat bash jq ntpdate
-  smartmontools zoneinfo-all coreutils coreutils-nohup
-  libunistring libxml2 liblzma libpcre2 libnetsnmp libcurl
-  libtins libyaml-cpp glib2 libgpiod libtirpc libaio
-  luci-lua-runtime maccalc luci-proto-ipv6
-  dae-geoip dae-geosite daed-geoip daed-geosite
-  hysteria xray-core sing-box v2ray-geodata geoview
-  jsonfilter v2ray-geoip v2ray-geosite
+# Base libraries first (PassWall shadowsocks-* need pcre2/libxml2 in the index)
+BASE_PACKAGES=(
+  pcre2 libpcre2 libxml2 libunistring
+  libev libsodium c-ares libcurl libudns
+  boost boost-system boost-program_options boost-date_time
+  rust
+  coreutils coreutils-nohup unzip bc pciutils lm-sensors jq yq
+  libpam zoneinfo-all
+  luci-compat luci-proto-ipv6 luci-lua-runtime
   ttyd luci-app-ttyd libwebsockets-full libuv libjson-c libcap
   kmod-nft-offload kmod-nft-fullcone kmod-tcp-bbr
-  ip
+  jsonfilter v2ray-geoip v2ray-geosite
 )
 
-for pkg in "${FEED_PACKAGES[@]}"; do
-  ./scripts/feeds install "$pkg" 2>/dev/null || echo "Skip feed package: $pkg"
+for pkg in "${BASE_PACKAGES[@]}"; do
+  install_pkg "$pkg" || true
 done
 
-./scripts/feeds install -a
+# PassWall feeds (all binaries + LuCI app) — after base deps are linked
+./scripts/feeds install -p passwall_packages
+./scripts/feeds install -p passwall_luci
 
 echo "==> Cloning custom packages into package/"
 mkdir -p package
