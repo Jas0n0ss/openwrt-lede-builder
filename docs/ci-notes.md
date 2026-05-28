@@ -24,9 +24,17 @@
 3. `ci-compile.sh`（失败会 `exit 1`，并行失败会 `-j1 V=s` 重试）
 4. `pack-firmware.sh`（无镜像则失败）
 
+## 不编译的包（避免 rust/gn）
+
+`shadowsocks-rust`、`naiveproxy` 会拉取 `rust`/`gn` host 编译，已在 `common.config` 关闭，并由 `configs/snippets/no-rust-passwall.config` 兜底。
+
+## TurboACC
+
+已关闭 `INCLUDE_OFFLOADING`（`kmod-fast-classifier` / shortcut-fe 仅部分平台存在）。保留 BBR + nft-fullcone。
+
 ## 缓存
 
-`feeds-*-v3-*` key 用于避开含 kenzo 全量安装的旧 feeds 缓存。
+`feeds-*-v4-*` key 用于避开含 kenzo/small 的旧 feeds 缓存；setup 会删除 `package/feeds/small` 残留。
 
 ## Actions Node 警告
 

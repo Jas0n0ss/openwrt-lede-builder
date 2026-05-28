@@ -36,6 +36,10 @@ EOF
 
 ./scripts/feeds update -a
 
+echo "==> Purging kenzo/small feeds (stale cache / Kconfig noise)"
+sed -i '\|kenzok8/openwrt-packages|d; \|kenzok8/small|d' feeds.conf.default 2>/dev/null || true
+rm -rf feeds/small feeds/kenzo package/feeds/small package/feeds/kenzo 2>/dev/null || true
+
 echo "==> Removing conflicting feed packages"
 if [ -d feeds/kenzo ]; then
   rm -rf feeds/kenzo/luci-theme-alpha feeds/kenzo/luci-app-dockerman 2>/dev/null || true
@@ -57,7 +61,6 @@ BASE_PACKAGES=(
   pcre2 libpcre2 libxml2 libunistring
   libev libsodium c-ares libcurl libudns
   boost boost-system boost-program_options boost-date_time
-  rust
   coreutils coreutils-nohup unzip bc pciutils lm-sensors jq yq
   libpam zoneinfo-all
   luci-compat luci-proto-ipv6 luci-lua-runtime

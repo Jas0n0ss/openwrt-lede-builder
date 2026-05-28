@@ -85,7 +85,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: lede/dl
-          key: dl-lede-v3-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
+          key: dl-lede-v4-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
           restore-keys: |
             dl-lede-
 
@@ -93,7 +93,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: lede/feeds
-          key: feeds-lede-v3-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
+          key: feeds-lede-v4-${{ hashFiles('configs/lede/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
           restore-keys: |
             feeds-lede-
 
@@ -142,6 +142,7 @@ jobs:
           cat ${{ github.workspace }}/configs/lede/common.config > .config
           cat ${{ github.workspace }}/configs/lede/${{ matrix.device }}.config >> .config
           cat ${{ github.workspace }}/configs/custom-plugins.config >> .config
+          cat ${{ github.workspace }}/configs/snippets/no-rust-passwall.config >> .config
           echo "CONFIG_DEVEL=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
           bash ${{ github.workspace }}/scripts/verify-defconfig.sh "$(pwd)"

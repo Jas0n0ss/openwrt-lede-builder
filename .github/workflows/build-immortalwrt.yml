@@ -88,7 +88,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: immortalwrt/dl
-          key: dl-immortalwrt-v3-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
+          key: dl-immortalwrt-v4-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
           restore-keys: |
             dl-immortalwrt-
 
@@ -96,7 +96,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: immortalwrt/feeds
-          key: feeds-immortalwrt-v3-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
+          key: feeds-immortalwrt-v4-${{ hashFiles('configs/immortalwrt/**', 'configs/custom-plugins.config', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh') }}
           restore-keys: |
             feeds-immortalwrt-
 
@@ -145,6 +145,7 @@ jobs:
             cat ${{ github.workspace }}/configs/immortalwrt/${{ matrix.device }}.config > .config
           fi
           cat ${{ github.workspace }}/configs/custom-plugins.config >> .config
+          cat ${{ github.workspace }}/configs/snippets/no-rust-passwall.config >> .config
           echo "CONFIG_DEVEL=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
           bash ${{ github.workspace }}/scripts/verify-defconfig.sh "$(pwd)"
