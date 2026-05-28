@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Assemble .config and run verify-defconfig.
+# Merge device + common + custom-plugins into .config, then defconfig.
 # Usage: ci-prepare-config.sh <repo> <device> <workspace> <src_dir>
+#
+# Order: device (TARGET) → common → custom-plugins → small snippets → sanitize → defconfig
 
 set -euo pipefail
 
@@ -8,6 +10,7 @@ REPO="${1:?repo: lede|immortalwrt}"
 DEVICE="${2:?device key}"
 WORKSPACE="${3:?builder repo root}"
 SRC_DIR="${4:?openwrt source dir}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 case "$REPO" in
   lede|immortalwrt) ;;
@@ -17,38 +20,39 @@ esac
 CONFIG_DIR="${WORKSPACE}/configs/${REPO}"
 COMMON="${CONFIG_DIR}/common.config"
 DEVICE_CFG="${CONFIG_DIR}/${DEVICE}.config"
+CUSTOM="${WORKSPACE}/configs/custom-plugins.config"
 
-[ -f "$DEVICE_CFG" ] || {
-  echo "ERROR: missing ${DEVICE_CFG}" >&2
-  exit 1
-}
+for f in "$DEVICE_CFG" "$COMMON" "$CUSTOM"; do
+  [ -f "$f" ] || {
+    echo "ERROR: missing ${f}" >&2
+    exit 1
+  }
+done
 
 cd "$SRC_DIR"
 
-if [ -f "$COMMON" ]; then
-  cat "$COMMON" > .config
-  cat "$DEVICE_CFG" >> .config
-else
-  cat "$DEVICE_CFG" > .config
-fi
+# 1) Device target + per-device WiFi/drivers
+cat "$DEVICE_CFG" > .config
 
-cat "${WORKSPACE}/configs/custom-plugins.config" >> .config
-cat "${WORKSPACE}/configs/snippets/wireless-core.config" >> .config
-cat "${WORKSPACE}/configs/snippets/dnsmasq-full.config" >> .config
-cat "${WORKSPACE}/configs/snippets/no-rust-passwall.config" >> .config
-cat "${WORKSPACE}/configs/snippets/no-selinux.config" >> .config
-cat "${WORKSPACE}/configs/snippets/no-nftables-json-dup.config" >> .config
+# 2) Shared base (PassWall, LuCI, libs…) — same for all devices of this repo
+cat "$COMMON" >> .config
 
-# Strip lines that force Kconfig cycles when merged with defconfig
-sed -i \
-  -e '/^CONFIG_PACKAGE_kmod-nft-fullcone=y$/d' \
-  -e '/^CONFIG_PACKAGE_kmod-nft-offload=y$/d' \
-  -e '/^CONFIG_PACKAGE_kmod-tcp-bbr=y$/d' \
-  -e '/^CONFIG_PACKAGE_dnsmasq_full_nftset=y$/d' \
-  .config
+# 3) Custom plugins (MosDNS, TurboACC, …)
+cat "$CUSTOM" >> .config
+
+# 4) Small policy snippets only (no dnsmasq-full, no turboacc INCLUDE)
+for snip in \
+  "${WORKSPACE}/configs/snippets/wireless-core.config" \
+  "${WORKSPACE}/configs/snippets/no-rust-passwall.config" \
+  "${WORKSPACE}/configs/snippets/no-selinux.config"; do
+  [ -f "$snip" ] && cat "$snip" >> .config
+done
 
 echo "CONFIG_DEVEL=y" >> .config
 echo "CONFIG_CCACHE=y" >> .config
 
+bash "${SCRIPT_DIR}/purge-broken-feed-packages.sh" "$(pwd)"
+bash "${SCRIPT_DIR}/sanitize-config.sh" "$(pwd)"
 bash "${WORKSPACE}/scripts/verify-defconfig.sh" "$(pwd)"
-echo "==> .config ready for ${REPO}/${DEVICE}"
+
+echo "==> .config ready: ${REPO}/${DEVICE} (device + common + custom-plugins)"

@@ -42,9 +42,25 @@
 
 **不要**在 `.config` 里写 `CONFIG_PACKAGE_kmod-nft-fullcone=y`：会与 `luci-app-turboacc` 的 `DEPENDS`/`select` 形成 Kconfig 环；只开 `luci-app-turboacc` + `INCLUDE_NFT_FULLCONE` 即可。
 
-## dnsmasq-full
+## 生成 .config（ci-prepare-config.sh）
 
-不要在 `common.config` 里写 `CONFIG_PACKAGE_dnsmasq-full=y`。使用 `configs/snippets/dnsmasq-full.config`：禁用默认 `dnsmasq`、启用 `dnsmasq-full`，且 **关闭** `dnsmasq_full_nftset`（避免与 `nftables-json` 的 Kconfig 环）。
+合并顺序（与用户预期一致）：
+
+1. `configs/<repo>/<device>.config` — TARGET + 机型 WiFi/驱动  
+2. `configs/<repo>/common.config` — PassWall、LuCI、公共库  
+3. `configs/custom-plugins.config` — MosDNS、TurboACC 等  
+
+然后 `sanitize-config.sh` 删除会触发 **Kconfig 环** 的行，再 `make defconfig`。
+
+**禁止写入合并 .config 的项：**
+
+| 禁止 | 原因 |
+|------|------|
+| `CONFIG_PACKAGE_dnsmasq-full=y` / `dnsmasq_full_*` | 与 `dnsmasq_full_nftset` 递归依赖 |
+| `CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_*=y` | 与 `kmod-nft-fullcone` 递归依赖 |
+| `CONFIG_PACKAGE_kmod-nft-fullcone=y` 等 | 应由 TurboACC 的 DEPENDS 拉取 |
+
+dnsmasq 使用 target 自带的 **DEFAULT_PACKAGES**（`dnsmasq`），不强行选 `dnsmasq-full`。TurboACC 只保留 `CONFIG_PACKAGE_luci-app-turboacc=y`。
 
 ## 缓存
 
