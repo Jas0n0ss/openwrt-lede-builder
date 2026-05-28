@@ -24,6 +24,10 @@
 3. `ci-compile.sh`（失败会 `exit 1`，并行失败会 `-j1 V=s` 重试）
 4. `pack-firmware.sh`（无镜像则失败）
 
+## libselinux / pcre2
+
+已禁用 `libselinux`/`libsepol`（路由器不需要 SELinux，且易在 `pcre2.h` 未进 staging 时编译失败）。`common.config` 中保留 `pcre2` + `libpcre2` 供 PassWall 等使用。
+
 ## 不编译的包（避免 rust/gn）
 
 `shadowsocks-rust`、`naiveproxy` 会拉取 `rust`/`gn` host 编译，已在 `common.config` 关闭，并由 `configs/snippets/no-rust-passwall.config` 兜底。

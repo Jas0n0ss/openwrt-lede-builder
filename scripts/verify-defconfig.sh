@@ -29,4 +29,9 @@ if grep -q 'recursive dependency detected' "$log"; then
   exit 1
 fi
 
+if grep -q '^CONFIG_PACKAGE_libselinux=y' .config; then
+  echo "ERROR: libselinux is enabled — append configs/snippets/no-selinux.config" >&2
+  exit 1
+fi
+
 echo "==> verify-defconfig: OK"

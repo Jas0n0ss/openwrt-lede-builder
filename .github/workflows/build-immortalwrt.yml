@@ -146,6 +146,7 @@ jobs:
           fi
           cat ${{ github.workspace }}/configs/custom-plugins.config >> .config
           cat ${{ github.workspace }}/configs/snippets/no-rust-passwall.config >> .config
+          cat ${{ github.workspace }}/configs/snippets/no-selinux.config >> .config
           echo "CONFIG_DEVEL=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
           bash ${{ github.workspace }}/scripts/verify-defconfig.sh "$(pwd)"

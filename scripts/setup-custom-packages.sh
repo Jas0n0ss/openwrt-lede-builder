@@ -58,7 +58,7 @@ install_pkg() {
 
 # Base libraries (failures are non-fatal; PassWall install is mandatory)
 BASE_PACKAGES=(
-  pcre2 libpcre2 libxml2 libunistring
+  pcre2 libpcre2 libpcre2-8 libxml2 libunistring
   libev libsodium c-ares libcurl libudns
   boost boost-system boost-program_options boost-date_time
   coreutils coreutils-nohup unzip bc pciutils lm-sensors jq yq
