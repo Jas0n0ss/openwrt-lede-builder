@@ -137,7 +137,7 @@ jobs:
             chmod +x etc/uci-defaults/* 2>/dev/null || true
           fi
 
-            - name: Install all missing dependencies
+      - name: Install all missing dependencies
         run: |
           cd lede
           
