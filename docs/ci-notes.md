@@ -1,5 +1,9 @@
 # CI 说明
 
+唯一工作流：`.github/workflows/build.yml`（`build-lede.yml` / `build-immortalwrt.yml` 已移除）。
+
+脚本：`ci-resolve-build.sh`、`ci-prepare-config.sh` 与 feeds/compile 脚本配合使用。
+
 ## Feeds（LEDE）
 
 **不要**覆盖 `feeds.conf.default`。LEDE 使用 `coolsnowwolf/packages`、`coolsnowwolf/luci` 等；`setup-custom-packages.sh` 仅 **追加** PassWall 两条 feed。

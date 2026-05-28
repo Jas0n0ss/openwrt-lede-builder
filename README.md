@@ -1,7 +1,6 @@
 # OpenWrt / LEDE 固件构建
 
-[![Build LEDE](https://img.shields.io/github/actions/workflow/status/Jas0n0ss/openwrt-lede-builder/build-lede.yml?branch=main)](https://github.com/Jas0n0ss/openwrt-lede-builder/actions/workflows/build-lede.yml)
-[![Build ImmortalWrt](https://img.shields.io/github/actions/workflow/status/Jas0n0ss/openwrt-lede-builder/build-immortalwrt.yml?branch=main)](https://github.com/Jas0n0ss/openwrt-lede-builder/actions/workflows/build-immortalwrt.yml)
+[![Build OpenWrt](https://img.shields.io/github/actions/workflow/status/Jas0n0ss/openwrt-lede-builder/build.yml?branch=main)](https://github.com/Jas0n0ss/openwrt-lede-builder/actions/workflows/build.yml)
 [![GitHub release](https://img.shields.io/github/v/release/Jas0n0ss/openwrt-lede-builder)](https://github.com/Jas0n0ss/openwrt-lede-builder/releases)
 [![License](https://img.shields.io/github/license/Jas0n0ss/openwrt-lede-builder)](https://github.com/Jas0n0ss/openwrt-lede-builder/blob/main/LICENSE)
 
@@ -57,16 +56,14 @@ SSH banner 按源码区分：LEDE 为六边形样式，ImmortalWrt 为 `BE FREE 
 | DHCP | 10.10.10.100 – 10.10.10.250 |
 | 时区 | Asia/Shanghai |
 
-## CI 工作流
+## CI
 
-| Workflow | 源码 |
+| Workflow | 说明 |
 |----------|------|
-| Build LEDE Firmware | coolsnowwolf/lede |
-| Build ImmortalWrt | immortalwrt/immortalwrt |
-| Build OpenWrt (LEDE + ImmortalWrt) | 手动选择 lede / immortalwrt |
-| Check OpenWrt Upstream | 上游变更时触发构建 |
+| **Build OpenWrt Firmware** (`build.yml`) | 唯一编译入口；`source` 选 `lede` 或 `immortalwrt`，`device` 选代号或 `all` |
+| **Check OpenWrt Upstream** | 上游更新时自动触发 `build.yml` |
 
-**手动运行：** Actions → 选择 workflow → Run workflow → 指定 `device`。需开启 Actions 且 Workflow permissions 为 Read and write。产物在 Artifacts；手动触发另写入 Releases。
+**手动编译：** Actions → **Build OpenWrt Firmware** → Run workflow → 选择源码与设备。需 Workflow permissions 为 Read and write。产物在 Artifacts；手动运行会写入 Releases。定时任务默认仅 **ImmortalWrt + all**。
 
 ## 目录
 
@@ -78,6 +75,8 @@ configs/
 scripts/
   setup-custom-packages.sh  # feeds 与第三方包
   patch-feeds.sh            # 固定 xray/sing-box Go 版本
+  ci-resolve-build.sh       # CI：解析 source/device matrix
+  ci-prepare-config.sh      # CI：合并 .config + verify-defconfig
   verify-setup.sh           # feeds 步骤后校验
   verify-defconfig.sh       # defconfig 与 Kconfig 检查
   ci-compile.sh             # 下载 + 编译（失败即退出）

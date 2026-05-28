@@ -2,7 +2,7 @@ name: Check OpenWrt Upstream
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -12,118 +12,60 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-
     steps:
-      ####################################################################
-      # 1. 获取 upstream commit
-      ####################################################################
       - name: Get LEDE latest commit
         id: lede
-        run: |
-          LEDE=$(curl -s https://api.github.com/repos/coolsnowwolf/lede/commits/master | jq -r '.sha')
-          echo "commit=$LEDE" >> $GITHUB_OUTPUT
+        run: echo "commit=$(curl -fsSL https://api.github.com/repos/coolsnowwolf/lede/commits/master | jq -r '.sha')" >> "$GITHUB_OUTPUT"
 
       - name: Get ImmortalWrt latest commit
         id: immortal
-        run: |
-          IMM=$(curl -s https://api.github.com/repos/immortalwrt/immortalwrt/commits/master | jq -r '.sha')
-          echo "commit=$IMM" >> $GITHUB_OUTPUT
+        run: echo "commit=$(curl -fsSL https://api.github.com/repos/immortalwrt/immortalwrt/commits/master | jq -r '.sha')" >> "$GITHUB_OUTPUT"
 
-      ####################################################################
-      # 2. restore cache
-      ####################################################################
-      - name: Restore cache
+      - name: Restore upstream cache
         uses: actions/cache@v5
         with:
           path: .upstream_commit
           key: upstream-commit
 
-      ####################################################################
-      # 3. compare + trigger (已修复 mkdir crash)
-      ####################################################################
-      - name: Compare and trigger builds
+      - name: Compare and trigger build
         run: |
           LEDE_LATEST="${{ steps.lede.outputs.commit }}"
           IMM_LATEST="${{ steps.immortal.outputs.commit }}"
-
           LEDE_TRIGGER=false
           IMM_TRIGGER=false
 
-          # ===== 修复点：避免 file/dir 冲突 =====
           if [ -e .upstream_commit ] && [ ! -d .upstream_commit ]; then
             rm -f .upstream_commit
           fi
           mkdir -p .upstream_commit
 
-          echo "LEDE: $LEDE_LATEST"
-          echo "IMM: $IMM_LATEST"
-
-          ####################################
-          # LEDE check
-          ####################################
-          if [ -f .upstream_commit/lede ]; then
-            OLD=$(cat .upstream_commit/lede)
-            if [ "$OLD" != "$LEDE_LATEST" ]; then
-              echo "LEDE updated"
-              LEDE_TRIGGER=true
-            fi
-          else
+          if [ ! -f .upstream_commit/lede ] || [ "$(cat .upstream_commit/lede)" != "$LEDE_LATEST" ]; then
             LEDE_TRIGGER=true
           fi
           echo "$LEDE_LATEST" > .upstream_commit/lede
 
-          ####################################
-          # ImmortalWrt check
-          ####################################
-          if [ -f .upstream_commit/immortalwrt ]; then
-            OLD=$(cat .upstream_commit/immortalwrt)
-            if [ "$OLD" != "$IMM_LATEST" ]; then
-              echo "ImmortalWrt updated"
-              IMM_TRIGGER=true
-            fi
-          else
+          if [ ! -f .upstream_commit/immortalwrt ] || [ "$(cat .upstream_commit/immortalwrt)" != "$IMM_LATEST" ]; then
             IMM_TRIGGER=true
           fi
           echo "$IMM_LATEST" > .upstream_commit/immortalwrt
 
-          ####################################
-          # trigger build workflow
-          ####################################
-          trigger_workflow() {
-            local workflow="$1"
-            local payload="$2"
+          trigger() {
+            local source="$1"
             local code
-            code=$(curl -s -o /tmp/trigger_resp.json -w "%{http_code}" -X POST \
+            code=$(curl -fsS -o /tmp/trigger.json -w "%{http_code}" -X POST \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/${workflow}/dispatches" \
-              -d "$payload")
-            if [ "$code" != "204" ]; then
-              echo "Failed to trigger ${workflow} (HTTP ${code})"
-              cat /tmp/trigger_resp.json
-              exit 1
-            fi
-            echo "Triggered ${workflow}"
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build.yml/dispatches" \
+              -d "{\"ref\":\"main\",\"inputs\":{\"source\":\"${source}\",\"device\":\"all\"}}")
+            [ "$code" = "204" ] || { echo "Trigger failed HTTP $code"; cat /tmp/trigger.json; exit 1; }
+            echo "Triggered build.yml source=${source}"
           }
 
-          if [ "$LEDE_TRIGGER" = true ]; then
-            trigger_workflow "build-lede.yml" '{"ref":"main","inputs":{"device":"all"}}'
-            trigger_workflow "build-lede-immortalwrt.yml" '{"ref":"main","inputs":{"source":"lede","device":"all"}}'
-          fi
+          [ "$LEDE_TRIGGER" = true ] && trigger lede
+          [ "$IMM_TRIGGER" = true ] && trigger immortalwrt
+          [ "$LEDE_TRIGGER" != true ] && [ "$IMM_TRIGGER" != true ] && echo "No upstream changes"
 
-          if [ "$IMM_TRIGGER" = true ]; then
-            trigger_workflow "build-immortalwrt.yml" '{"ref":"main","inputs":{"device":"all"}}'
-            trigger_workflow "build-lede-immortalwrt.yml" '{"ref":"main","inputs":{"source":"immortalwrt","device":"all"}}'
-          fi
-
-          if [ "$LEDE_TRIGGER" != true ] && [ "$IMM_TRIGGER" != true ]; then
-            echo "No upstream changes detected"
-          fi
-
-      ####################################################################
-      # 4. save cache
-      ####################################################################
-      - name: Save cache
+      - name: Save upstream cache
         uses: actions/cache@v5
         with:
           path: .upstream_commit

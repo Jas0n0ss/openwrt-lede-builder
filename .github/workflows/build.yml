@@ -1,0 +1,186 @@
+# 唯一维护的固件编译工作流（LEDE + ImmortalWrt）
+name: Build OpenWrt Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "源码树 (configs/<source>/)"
+        type: choice
+        required: true
+        default: immortalwrt
+        options:
+          - immortalwrt
+          - lede
+      device:
+        description: "设备代号 (configs/devices.list)"
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - xiaomi-ax3600
+          - xiaomi-ax9000
+          - xiaomi-wr30u
+          - xiaomi-ax6000
+          - redmi-ax6000
+          - phicomm-k2p
+          - xiaomi-3g
+          - xiaomi-cr660x
+          - r2s
+          - x86_64
+          - raspberrypi-4b
+
+  schedule:
+    # 定时仅编 ImmortalWrt 全设备；LEDE 请手动选 source=lede
+    - cron: "0 20 * * 0"
+
+permissions:
+  contents: write
+
+env:
+  TZ: Asia/Shanghai
+  CCACHE_DIR: ~/.ccache
+  CCACHE_COMPRESS: "true"
+  CCACHE_COMPRESSLEVEL: "6"
+  CCACHE_MAXSIZE: 10G
+  SRC_DIR: src
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      repo: ${{ steps.resolve.outputs.repo }}
+      upstream: ${{ steps.resolve.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: resolve
+        run: |
+          SOURCE="${{ github.event.inputs.source }}"
+          DEVICE="${{ github.event.inputs.device }}"
+          [ -n "$SOURCE" ] || SOURCE="immortalwrt"
+          bash scripts/ci-resolve-build.sh "$SOURCE" "$DEVICE" "${{ github.event_name }}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    name: ${{ needs.setup.outputs.repo }} · ${{ matrix.device }}
+
+    env:
+      REPO: ${{ needs.setup.outputs.repo }}
+      UPSTREAM: ${{ needs.setup.outputs.upstream }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout ${{ env.REPO }} source
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UPSTREAM }}
+          ref: master
+          path: ${{ env.SRC_DIR }}
+          fetch-depth: 1
+
+      - name: Resolve cache platform
+        id: cache
+        run: echo "platform=$(bash scripts/cache-platform.sh configs/${REPO}/${{ matrix.device }}.config)" >> "$GITHUB_OUTPUT"
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+          sudo docker image prune -af
+          df -h
+
+      - name: Cache dl
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.SRC_DIR }}/dl
+          key: dl-${{ env.REPO }}-v5-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh', 'scripts/ci-prepare-config.sh') }}
+          restore-keys: dl-${{ env.REPO }}-
+
+      - name: Cache feeds
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.SRC_DIR }}/feeds
+          key: feeds-${{ env.REPO }}-v5-${{ hashFiles('configs/**', 'scripts/setup-custom-packages.sh', 'scripts/patch-feeds.sh', 'scripts/verify-setup.sh', 'scripts/ci-prepare-config.sh') }}
+          restore-keys: feeds-${{ env.REPO }}-
+
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: ~/.ccache
+          key: ccache-${{ env.REPO }}-${{ steps.cache.outputs.platform }}-${{ hashFiles('configs/**/common.config', 'configs/custom-plugins.config') }}
+          restore-keys: |
+            ccache-${{ env.REPO }}-${{ steps.cache.outputs.platform }}-
+            ccache-${{ env.REPO }}-
+
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison g++ gawk gettext \
+            git libssl-dev libelf-dev python3 python3-dev python3-distutils \
+            rsync unzip zlib1g-dev file wget subversion patch upx-ucl ccache \
+            ecj fastjar java-propose-classpath libncurses5-dev libncursesw5-dev \
+            libz-dev curl cmake jq rename tar
+
+      - name: Setup feeds and packages
+        working-directory: ${{ env.SRC_DIR }}
+        run: bash ${{ github.workspace }}/scripts/setup-custom-packages.sh . append ${{ github.workspace }}/configs
+
+      - name: Prepare firmware overlay
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/generate-banner.sh "${REPO}" files
+          bash scripts/bundle-oh-my-bash.sh files
+          bash scripts/install-files-overlay.sh "${{ env.SRC_DIR }}" files
+
+      - name: Generate .config
+        run: |
+          bash ${{ github.workspace }}/scripts/ci-prepare-config.sh \
+            "${REPO}" "${{ matrix.device }}" "${{ github.workspace }}" "${{ github.workspace }}/${{ env.SRC_DIR }}"
+
+      - name: Compile firmware
+        run: |
+          TOOLCHAIN=""
+          [ "${REPO}" = "immortalwrt" ] && TOOLCHAIN=1
+          echo "Build ${REPO} ${{ matrix.device }} (platform=${{ steps.cache.outputs.platform }})"
+          bash ${{ github.workspace }}/scripts/ci-compile.sh "${{ github.workspace }}/${{ env.SRC_DIR }}" "$TOOLCHAIN"
+
+      - name: Pack firmware
+        working-directory: ${{ env.SRC_DIR }}
+        run: |
+          bash ${{ github.workspace }}/scripts/pack-firmware.sh \
+            "${{ matrix.device }}" "${REPO}" \
+            "${{ github.workspace }}/configs/${REPO}/${{ matrix.device }}.config" \
+            bin/targets "../release/${{ matrix.device }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.REPO }}-${{ matrix.device }}
+          path: release/${{ matrix.device }}
+          retention-days: 7
+
+      - name: Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: Jas0n0ss-${{ env.REPO }}-${{ matrix.device }}-${{ github.run_number }}
+          name: "Jas0n0ss ${{ env.REPO }} — ${{ matrix.device }} (#${{ github.run_number }})"
+          body: |
+            ## Jas0n0ss OpenWrt (${{ env.REPO }})
+
+            | 项 | 值 |
+            |----|-----|
+            | 源码 | `${{ env.UPSTREAM }}` |
+            | 设备 | `${{ matrix.device }}` |
+            | 命名 | `Jas0n0ss-${{ env.REPO }}-<代号>-<设备>-<平台>-<类型>.<后缀>` |
+            | 管理 | http://10.10.10.1 · `root` / `password` |
+            | 配置仓 | https://github.com/Jas0n0ss/openwrt-lede-builder |
+          files: release/${{ matrix.device }}/Jas0n0ss-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
