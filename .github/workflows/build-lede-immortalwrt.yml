@@ -124,49 +124,13 @@ jobs:
             ecj fastjar java-propose-classpath libncurses5-dev libncursesw5-dev \
             libz-dev curl cmake jq rename tar
 
-      - name: Configure feeds
+      - name: Setup feeds and custom packages
         run: |
-          cd src
-
-          cat >> feeds.conf.default << 'EOF'
-
-          src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
-          src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
-          src-git kenzo https://github.com/kenzok8/openwrt-packages.git
-          src-git small https://github.com/kenzok8/small.git
-
-          EOF
-
-          ./scripts/feeds update -a || ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Remove conflicting packages
-        run: |
-          cd src
-          rm -rf feeds/kenzo/luci-theme-alpha feeds/kenzo/luci-app-dockerman 2>/dev/null || true
-          rm -rf feeds/luci/luci-app-dae feeds/luci/luci-app-daed 2>/dev/null || true
-          find feeds -name "*fchomo*" -type d -exec rm -rf {} + 2>/dev/null || true
-
-      - name: Install feed packages
-        run: |
-          cd src
-          for pkg in bc pciutils lm-sensors wsdd2 luci-app-ksmbd luci-app-samba4 \
-            libpam ddns-scripts wget-ssl luci-compat bash jq ntpdate \
-            smartmontools zoneinfo-all coreutils coreutils-nohup libunistring \
-            libxml2 luci-proto-ipv6 liblzma libpcre2 libnetsnmp libcurl \
-            libtins libyaml-cpp glib2 libgpiod libtirpc libaio luci-lua-runtime \
-            maccalc dae-geoip dae-geosite daed-geoip daed-geosite; do
-            ./scripts/feeds install "$pkg" 2>/dev/null || true
-          done
-          ./scripts/feeds install -a
-
-      - name: Clone additional plugins
-        run: |
-          cd src/package
-          git clone --depth 1 https://github.com/sbwml/luci-app-mosdns.git mosdns || true
-          git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git turboacc || true
-          git clone --depth 1 https://github.com/tsl0922/ttyd.git ttyd || true
-          git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git aurora || true
+          FEED_MODE="append"
+          if [ "${{ needs.setup.outputs.repo }}" = "lede" ]; then
+            FEED_MODE="lede"
+          fi
+          bash ${{ github.workspace }}/scripts/setup-custom-packages.sh src "$FEED_MODE"
 
       - name: Copy custom files
         run: |
@@ -195,6 +159,7 @@ jobs:
           else
             cat "$DEVICE_CFG" > .config
           fi
+          cat "${{ github.workspace }}/configs/custom-plugins.config" >> .config
 
           echo "CONFIG_DEVEL=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
