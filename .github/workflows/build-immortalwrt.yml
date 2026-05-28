@@ -1,4 +1,4 @@
-name: Build ImmortalWrt Firmware
+name: Build LEDE Firmware
 
 on:
   workflow_dispatch:
@@ -23,40 +23,55 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  NODE_OPTIONS: "--max-old-space-size=4096"
+  GOPROXY: "https://goproxy.io,direct"
+  GO111MODULE: "on"
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.device }}" != "all" ]; then
+            echo 'matrix={"device":["${{ github.event.inputs.device }}"]}' >> $GITHUB_OUTPUT
+          else
+            echo 'matrix={"device":["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]}' >> $GITHUB_OUTPUT
+          fi
+
   build:
+    needs: setup
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
-      matrix:
-        device: [r2s, cr660x, ax6000, x86_64, raspberrypi-4b]
-    name: Build ImmortalWrt for ${{ matrix.device }}
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    name: Build LEDE for ${{ matrix.device }}
 
     steps:
-      - name: Skip if this device is not selected
-        if: |
-          github.event_name == 'workflow_dispatch' &&
-          github.event.inputs.device != 'all' &&
-          github.event.inputs.device != matrix.device
+      - name: Free disk space
         run: |
-          echo "跳过 ${{ matrix.device }}，仅编译 ${{ github.event.inputs.device }}"
-          exit 0
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          sudo docker system prune -af || true
+          df -h
 
       - name: Checkout builder config
         uses: actions/checkout@v4
 
-      - name: Checkout ImmortalWrt source
+      - name: Checkout LEDE source
         uses: actions/checkout@v4
         with:
-          repository: immortalwrt/immortalwrt
-          path: immortalwrt
+          repository: coolsnowwolf/lede
+          path: lede
           ref: master
 
+      # ===== 缓存步骤 =====
       - name: Cache downloads (dl)
         uses: actions/cache@v4
         with:
-          path: immortalwrt/dl
+          path: lede/dl
           key: dl-${{ matrix.device }}-${{ hashFiles('configs/common.config', 'configs/${{ matrix.device }}.config') }}
           restore-keys: |
             dl-${{ matrix.device }}-
@@ -65,8 +80,8 @@ jobs:
       - name: Cache feeds
         uses: actions/cache@v4
         with:
-          path: immortalwrt/feeds
-          key: feeds-${{ hashFiles('immortalwrt/feeds.conf.default') }}
+          path: lede/feeds
+          key: feeds-${{ hashFiles('lede/feeds.conf.default') }}
           restore-keys: |
             feeds-
 
@@ -79,81 +94,24 @@ jobs:
             ccache-${{ matrix.device }}-
             ccache-
 
-      - name: Setup dependencies
+      # ===== 环境准备 =====
+      - name: Setup dependencies with full toolchain
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison g++ gawk \
             gettext git libssl-dev libelf-dev python3-distutils python3-dev \
             rsync unzip zlib1g-dev file wget subversion patch upx-ucl \
             ccache ecj fastjar jarwrapper java-propose-classpath libz-dev \
-            libncurses5-dev libncursesw5-dev
-
-      - name: Configure feeds (PassWall + kenzo/small sources)
-        run: |
-          cd immortalwrt
-          # 启用 ImmortalWrt 官方 feeds 中的 kenzo 和 small 源
-          sed -i 's/#src-git kenzo/src-git kenzo/g' feeds.conf.default
-          sed -i 's/#src-git small/src-git small/g' feeds.conf.default
-          # 在 feeds.conf.default 顶部插入 PassWall 源
-          cp feeds.conf.default feeds.conf.default.bak
-          cat > feeds.conf.default << 'EOF'
-          src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
-          src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
-          EOF
-          cat feeds.conf.default.bak >> feeds.conf.default
-          rm feeds.conf.default.bak
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Clone additional plugins
-        run: |
-          cd immortalwrt
-          # 这些插件可能与 ImmortalWrt 官方源中的冲突，添加失败时忽略
-          git clone --depth 1 https://github.com/sbwml/luci-app-mosdns.git package/mosdns || true
-          git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git package/turboacc || true
-          git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd || true
-          git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora || true
-
-      - name: Copy custom files (uci-defaults, banner, etc.)
-        run: |
-          cd immortalwrt
-          if [ -d "${{ github.workspace }}/files" ]; then
-            cp -rf ${{ github.workspace }}/files/* ./
-            chmod +x files/etc/uci-defaults/* 2>/dev/null || true
-            chmod +x etc/uci-defaults/* 2>/dev/null || true
-          fi
-
-      - name: Clean problematic packages and generate .config
-        run: |
-          cd immortalwrt
-          # 删除可能引起冲突的包
-          rm -rf feeds/kenzo/luci-theme-alpha 2>/dev/null || true
-          rm -rf feeds/kenzo/luci-app-dockerman 2>/dev/null || true
-          rm -rf feeds/luci/luci-app-dae 2>/dev/null || true
-          rm -rf feeds/luci/luci-app-daed 2>/dev/null || true
-          find feeds -name "*fchomo*" -type d -exec rm -rf {} + 2>/dev/null || true
-
-          if [ ! -f "${{ github.workspace }}/configs/common.config" ]; then
-            echo "错误: common.config 不存在"
-            exit 1
-          fi
-          if [ ! -f "${{ github.workspace }}/configs/${{ matrix.device }}.config" ]; then
-            echo "错误: ${{ matrix.device }}.config 不存在"
-            exit 1
-          fi
-          cat ${{ github.workspace }}/configs/common.config > .config
-          cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
-          # 强制禁用有问题的包
-          echo "# CONFIG_PACKAGE_luci-app-fchomo is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-theme-alpha is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-app-dockerman is not set" >> .config
-          make defconfig
-
-      - name: Prebuild core dependencies with Go 1.24
-        id: setup_go
-        run: |
-          cd immortalwrt
-          # 安装 Golang 1.24.2
+            libncurses5-dev libncursesw5-dev \
+            golang-go cargo nodejs npm curl
+            
+          # 安装 Rust
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          source "$HOME/.cargo/env"
+          rustc --version
+          
+          # 安装 Go 1.24
           wget -q https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
           sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
           echo "/usr/local/go/bin" >> $GITHUB_PATH
@@ -162,37 +120,125 @@ jobs:
           export GOROOT=/usr/local/go
           go version
 
+      # ===== Feeds 配置 =====
+      - name: Configure feeds (PassWall official method)
+        run: |
+          cd lede
+          cat > feeds.conf.default << 'EOF'
+          src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
+          src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
+          src-git kenzo https://github.com/kenzok8/openwrt-packages.git
+          src-git small https://github.com/kenzok8/small.git
+          src-git packages https://git.openwrt.org/feed/packages.git;openwrt-23.05
+          src-git luci https://git.openwrt.org/project/luci.git;openwrt-23.05
+          EOF
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ===== 额外插件 =====
+      - name: Clone additional plugins
+        run: |
+          cd lede
+          git clone --depth 1 https://github.com/sbwml/luci-app-mosdns.git package/mosdns || true
+          git clone --depth 1 https://github.com/chenmozhijin/luci-app-turboacc.git package/turboacc || true
+          git clone --depth 1 https://github.com/tsl0922/ttyd.git package/ttyd || true
+          git clone --depth 1 https://github.com/eamonxg/luci-theme-aurora.git package/aurora || true
+
+      # ===== 安装所有缺失依赖 =====
+      - name: Install all missing dependencies
+        run: |
+          cd lede
+          
+          echo "=== 安装缺失的依赖包 ==="
+          
+          # 安装所有缺失的依赖
+          for pkg in bc pciutils lm-sensors wsdd2 luci-app-ksmbd luci-app-samba4 \
+                      libpam ddns-scripts wget-ssl luci-compat bash jq ntpdate \
+                      smartmontools zoneinfo-all coreutils coreutils-nohup \
+                      libunistring libxml2 luci-proto-ipv6 liblzma libpcre2 \
+                      libnetsnmp libcurl libtins libyaml-cpp glib2 libgpiod \
+                      libtirpc libaio luci-lua-runtime maccalc gettext; do
+            ./scripts/feeds install $pkg 2>/dev/null || echo "警告: $pkg 不存在，跳过"
+          done
+          
+          # 重新安装所有 feeds
+          ./scripts/feeds install -a
+          
+          echo "=== 依赖安装完成 ==="
+
+      # ===== 自定义文件 =====
+      - name: Copy custom files
+        run: |
+          cd lede
+          if [ -d "${{ github.workspace }}/files" ]; then
+            cp -rf ${{ github.workspace }}/files/* ./
+            chmod +x files/etc/uci-defaults/* 2>/dev/null || true
+          fi
+
+      # ===== 生成 .config =====
+      - name: Generate .config
+        run: |
+          cd lede
+          
+          # 删除有问题的包（但保留源）
+          rm -rf feeds/kenzo/luci-theme-alpha feeds/luci/luci-app-dae 2>/dev/null || true
+          rm -rf feeds/kenzo/luci-app-dockerman 2>/dev/null || true
+          
+          cat ${{ github.workspace }}/configs/common.config > .config
+          cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
+          echo "# CONFIG_PACKAGE_luci-app-fchomo is not set" >> .config
+          echo "# CONFIG_PACKAGE_luci-theme-alpha is not set" >> .config
+          
+          make defconfig
+
+      # ===== 预编译核心依赖 =====
+      - name: Prebuild core dependencies
+        run: |
+          cd lede
+          export PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH
+          export GOROOT=/usr/local/go
+          
           make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          # 编译所有 PassWall 核心依赖，确保使用正确的 Go 版本
-          make package/xray-core/compile -j$(nproc) || make package/xray-core/compile -j1 V=s
-          make package/sing-box/compile -j$(nproc) || make package/sing-box/compile -j1 V=s
-          make package/v2ray-geodata/compile -j$(nproc) || make package/v2ray-geodata/compile -j1 V=s
-          make package/geoview/compile -j$(nproc) || make package/geoview/compile -j1 V=s
+          
+          # 编译 PassWall 的 Go 依赖
+          for pkg in xray-core sing-box hysteria geoview; do
+            make package/feeds/passwall_packages/$pkg/compile -j$(nproc) 2>/dev/null || true
+          done
 
       - name: Download sources
         run: |
-          cd immortalwrt
+          cd lede
+          export PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH
+          export GOROOT=/usr/local/go
           make download -j16
 
+      # ===== 编译固件 =====
       - name: Compile firmware
         run: |
-          cd immortalwrt
+          cd lede
+          export PATH=/usr/local/go/bin:$HOME/.cargo/bin:$PATH
+          export GOROOT=/usr/local/go
+          
           echo "开始编译 ${{ matrix.device }}: $(date)"
-          if make -j$(nproc); then
+          ccache -s
+          
+          if make -j$(nproc) 2>&1 | tee build.log; then
             echo "编译成功: $(date)"
           else
             echo "并行编译失败，清理后单线程重试..."
             make target/linux/clean
-            make package/xray-core/clean
-            make package/sing-box/clean
-            make package/geoview/clean
+            for pkg in xray-core sing-box hysteria geoview; do
+              make package/feeds/passwall_packages/$pkg/clean 2>/dev/null || true
+            done
             make -j1 V=s
           fi
+          ccache -s
 
+      # ===== 整理产物 =====
       - name: Prepare artifacts
         run: |
-          cd immortalwrt
+          cd lede
           mkdir -p ../release/${{ matrix.device }}
           find bin/targets/ -type f \( -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o -name "*.qcow2" -o -name "*.sdcard.img" -o -name "*-sysupgrade.*" \) 2>/dev/null | while read file; do
             cp "$file" "../release/${{ matrix.device }}/"
@@ -205,21 +251,32 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-${{ matrix.device }}
+          name: lede-${{ matrix.device }}
           path: release/${{ matrix.device }}
           retention-days: 7
 
+      # ===== 发布 Release =====
       - name: Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ImmortalWrt-${{ matrix.device }}-${{ github.run_number }}
-          name: "ImmortalWrt Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}"
+          tag_name: LEDE-${{ matrix.device }}-${{ github.run_number }}
+          name: "LEDE Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}"
           body: |
-            ## ImmortalWrt 固件自动构建
+            ## LEDE 固件自动构建
+
+            ### 版本信息
             - **设备**: ${{ matrix.device }}
             - **管理地址**: http://10.10.10.1
             - **用户名**: root | **密码**: password
+
+            ### 包含插件
+            - **PassWall** (科学上网，含 Hysteria/V2ray/Xray)
+            - MosDNS (DNS 转发)
+            - TurboACC (网络加速)
+            - TTYD (网页终端)
+            - Aurora 主题
+            - ARP 绑定
           files: |
             release/${{ matrix.device }}/*.img.gz
             release/${{ matrix.device }}/*.bin

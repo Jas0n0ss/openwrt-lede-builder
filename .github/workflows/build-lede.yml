@@ -47,16 +47,6 @@ jobs:
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     name: Build LEDE for ${{ matrix.device }}
 
-  # # 阶段二：根据生成的矩阵真正开始编译
-  # build:
-  #   needs: generate-matrix
-  #   runs-on: ubuntu-22.04
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       device: ${{ fromJson(needs.generate-matrix.outputs.devices) }}
-  #   name: Build LEDE for ${{ matrix.device }}
-
     steps:
       - name: Checkout builder config
         uses: actions/checkout@v4
@@ -105,16 +95,29 @@ jobs:
       - name: Configure feeds (PassWall official method)
         run: |
           cd lede
-          cp feeds.conf.default feeds.conf.default.bak
           cat > feeds.conf.default << 'EOF'
           src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git;main
           src-git passwall_luci https://github.com/Openwrt-Passwall/openwrt-passwall.git;main
           src-git kenzo https://github.com/kenzok8/openwrt-packages.git
           src-git small https://github.com/kenzok8/small.git
+          src-git packages https://git.openwrt.org/feed/packages.git;openwrt-23.05
+          src-git luci https://git.openwrt.org/project/luci.git;openwrt-23.05
           EOF
-          cat feeds.conf.default.bak >> feeds.conf.default
-          rm feeds.conf.default.bak
           ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Install all missing dependencies
+        run: |
+          cd lede
+          # 安装所有缺失的依赖（忽略不存在的包）
+          for pkg in bc pciutils lm-sensors wsdd2 luci-app-ksmbd luci-app-samba4 \
+                      libpam ddns-scripts wget-ssl luci-compat bash jq ntpdate \
+                      smartmontools zoneinfo-all coreutils coreutils-nohup \
+                      libunistring libxml2 luci-proto-ipv6 liblzma libpcre2 \
+                      libnetsnmp libcurl libtins libyaml-cpp glib2 libgpiod \
+                      libtirpc libaio luci-lua-runtime maccalc; do
+            ./scripts/feeds install $pkg 2>/dev/null || echo "警告: $pkg 不存在，跳过"
+          done
           ./scripts/feeds install -a
 
       - name: Clone additional plugins
@@ -134,6 +137,47 @@ jobs:
             chmod +x etc/uci-defaults/* 2>/dev/null || true
           fi
 
+            - name: Install all missing dependencies
+        run: |
+          cd lede
+          
+          # 安装所有缺失的依赖包
+          ./scripts/feeds install bc
+          ./scripts/feeds install pciutils
+          ./scripts/feeds install lm-sensors
+          ./scripts/feeds install wsdd2
+          ./scripts/feeds install luci-app-ksmbd
+          ./scripts/feeds install luci-app-samba4
+          ./scripts/feeds install libpam
+          ./scripts/feeds install ddns-scripts
+          ./scripts/feeds install wget-ssl
+          ./scripts/feeds install luci-compat
+          ./scripts/feeds install bash
+          ./scripts/feeds install jq
+          ./scripts/feeds install ntpdate
+          ./scripts/feeds install smartmontools
+          ./scripts/feeds install zoneinfo-all
+          ./scripts/feeds install coreutils
+          ./scripts/feeds install coreutils-nohup
+          ./scripts/feeds install libunistring
+          ./scripts/feeds install libxml2
+          ./scripts/feeds install luci-proto-ipv6
+          ./scripts/feeds install liblzma
+          ./scripts/feeds install libpcre2
+          ./scripts/feeds install libnetsnmp
+          ./scripts/feeds install libcurl
+          ./scripts/feeds install libtins
+          ./scripts/feeds install libyaml-cpp
+          ./scripts/feeds install glib2
+          ./scripts/feeds install libgpiod
+          ./scripts/feeds install libtirpc
+          ./scripts/feeds install libaio
+          ./scripts/feeds install luci-lua-runtime
+          ./scripts/feeds install maccalc
+          
+          # 重新安装所有 feeds
+          ./scripts/feeds install -a
+
       - name: Clean problematic packages and generate .config
         run: |
           cd lede
@@ -152,9 +196,7 @@ jobs:
           fi
           cat ${{ github.workspace }}/configs/common.config > .config
           cat ${{ github.workspace }}/configs/${{ matrix.device }}.config >> .config
-          echo "# CONFIG_PACKAGE_luci-app-fchomo is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-theme-alpha is not set" >> .config
-          echo "# CONFIG_PACKAGE_luci-app-dockerman is not set" >> .config
+
           make defconfig
 
       - name: Prebuild core dependencies with Go 1.24
