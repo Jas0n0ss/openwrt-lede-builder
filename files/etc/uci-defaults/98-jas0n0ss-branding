@@ -1,0 +1,66 @@
+#!/bin/sh
+# LuCI / system branding: only @Jas0n0ss and firmware source repo.
+
+BUILDER_URL='https://github.com/Jas0n0ss/openwrt-lede-builder'
+AUTHOR_URL='https://github.com/Jas0n0ss'
+
+# --- /etc/openwrt_release ---
+if [ -f /etc/openwrt_release ]; then
+  sed -i '/^DISTRIB_DESCRIPTION=/d' /etc/openwrt_release
+  sed -i '/^DISTRIB_REVISION=/d' /etc/openwrt_release
+  sed -i '/^DISTRIB_TAINTS=/d' /etc/openwrt_release
+  printf "%s\n" \
+    "DISTRIB_DESCRIPTION='Jas0n0ss OpenWrt'" \
+    "DISTRIB_REVISION='${BUILDER_URL}'" \
+    >> /etc/openwrt_release
+fi
+
+# --- hostname ---
+uci -q batch <<EOF
+set system.@system[0].hostname='Jas0n0ss-OpenWrt'
+set system.@system[0].zonename='Asia/Shanghai'
+set system.@system[0].timezone='CST-8'
+EOF
+uci commit system
+
+# --- LuCI: title and doc link (source only) ---
+if uci -q get luci.main >/dev/null 2>&1; then
+  uci -q batch <<EOF
+set luci.main.title='Jas0n0ss OpenWrt'
+set luci.main.sourcecode='${BUILDER_URL}'
+set luci.main.documentation='${BUILDER_URL}'
+set luci.main.distname='Jas0n0ss OpenWrt'
+set luci.main.distversion='@Jas0n0ss'
+EOF
+  uci commit luci
+fi
+
+# --- remove third-party links from default www index if present ---
+if [ -f /www/index.html ]; then
+  cat > /www/index.html <<EOF
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="0; URL=/cgi-bin/luci/" />
+  <title>Jas0n0ss OpenWrt</title>
+</head>
+<body>
+  <p>Firmware by <a href="${AUTHOR_URL}">@Jas0n0ss</a> —
+  <a href="${BUILDER_URL}">Source</a></p>
+</body>
+</html>
+EOF
+fi
+
+# --- drop symlinks under /www that point outside builder/author ---
+find /www -type l 2>/dev/null | while read -r link; do
+  target=$(readlink "$link" 2>/dev/null) || continue
+  case "$target" in
+    *Jas0n0ss*|*openwrt-lede-builder*) continue ;;
+    *github.com*|*openwrt.org*|*lede*|*immortalwrt*)
+      rm -f "$link"
+      ;;
+  esac
+done
+
+exit 0

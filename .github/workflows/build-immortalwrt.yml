@@ -11,9 +11,15 @@ on:
         type: choice
         options:
           - all
+          - xiaomi-ax3600
+          - xiaomi-ax9000
+          - xiaomi-wr30u
+          - xiaomi-ax6000
+          - redmi-ax6000
+          - phicomm-k2p
+          - xiaomi-3g
+          - xiaomi-cr660x
           - r2s
-          - cr660x
-          - ax6000
           - x86_64
           - raspberrypi-4b
 
@@ -40,17 +46,14 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
 
     steps:
+      - uses: actions/checkout@v4
       - id: set-matrix
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
-             [ "${{ github.event.inputs.device }}" != "all" ]; then
-
-            echo 'matrix={"device":["${{ github.event.inputs.device }}"]}' >> $GITHUB_OUTPUT
-
+          DEVICE="${{ github.event.inputs.device }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$DEVICE" ] && [ "$DEVICE" != "all" ]; then
+            bash scripts/device-matrix.sh "$DEVICE" >> $GITHUB_OUTPUT
           else
-
-            echo 'matrix={"device":["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]}' >> $GITHUB_OUTPUT
-
+            bash scripts/device-matrix.sh all >> $GITHUB_OUTPUT
           fi
 
   build:
@@ -288,30 +291,12 @@ jobs:
       - name: Prepare artifacts
         run: |
           cd lede
-
-          mkdir -p ../release/${{ matrix.device }}
-
-          find bin/targets/ -type f \
-            \( \
-              -name "*.img.gz" -o \
-              -name "*.bin" -o \
-              -name "*.vmdk" -o \
-              -name "*.qcow2" -o \
-              -name "*.sdcard.img" -o \
-              -name "*-sysupgrade.*" \
-            \) \
-            -exec cp {} ../release/${{ matrix.device }}/ \;
-
-          cd ../release/${{ matrix.device }}
-
-          if ! ls * >/dev/null 2>&1; then
-            echo "ERROR: no firmware artifacts found"
-            exit 1
-          fi
-
-          sha256sum * > sha256sums.txt
-          echo "Generated firmware files:"
-          ls -lh
+          bash ${{ github.workspace }}/scripts/pack-firmware.sh \
+            "${{ matrix.device }}" \
+            "immortalwrt" \
+            "${{ github.workspace }}/configs/immortalwrt/${{ matrix.device }}.config" \
+            "bin/targets" \
+            "../release/${{ matrix.device }}"
 
       ########################################################################
       # Upload Artifacts
@@ -332,26 +317,17 @@ jobs:
         if: success() && github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: LEDE-${{ matrix.device }}-${{ github.run_number }}
-
-          name: LEDE Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}
-
+          tag_name: Jas0n0ss-immortalwrt-${{ matrix.device }}-${{ github.run_number }}
+          name: "Jas0n0ss OpenWrt (immortalwrt) — ${{ matrix.device }} (#${{ github.run_number }})"
           body: |
-            ## LEDE 固件自动构建
+            ## Jas0n0ss OpenWrt
 
-            - Device: ${{ matrix.device }}
-            - Build Number: ${{ github.run_number }}
-            - Default IP: http://10.10.10.1
-            - Username: root
-            - Password: password
-
-          files: |
-            release/${{ matrix.device }}/*.img.gz
-            release/${{ matrix.device }}/*.bin
-            release/${{ matrix.device }}/*.vmdk
-            release/${{ matrix.device }}/*.qcow2
-            release/${{ matrix.device }}/*.sdcard.img
-            release/${{ matrix.device }}/*-sysupgrade.*
+            - **Device**: `${{ matrix.device }}`
+            - **Naming**: `Jas0n0ss-immortalwrt-<key>-<device>-<platform>-<type>.<ext>`
+            - **Source**: https://github.com/Jas0n0ss/openwrt-lede-builder
+            - **Default IP**: http://10.10.10.1
+            - **Login**: root / password
+          files: release/${{ matrix.device }}/Jas0n0ss-*
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

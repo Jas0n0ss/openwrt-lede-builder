@@ -19,9 +19,15 @@ on:
         default: all
         options:
           - all
-          - ax6000
+          - xiaomi-ax3600
+          - xiaomi-ax9000
+          - xiaomi-wr30u
+          - xiaomi-ax6000
+          - redmi-ax6000
+          - phicomm-k2p
+          - xiaomi-3g
+          - xiaomi-cr660x
           - r2s
-          - cr660x
           - x86_64
           - raspberrypi-4b
 
@@ -48,6 +54,7 @@ jobs:
       upstream: ${{ steps.out.outputs.upstream }}
 
     steps:
+      - uses: actions/checkout@v4
       - id: out
         run: |
           REPO="${{ github.event.inputs.source }}"
@@ -65,9 +72,9 @@ jobs:
 
           DEVICE="${{ github.event.inputs.device }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$DEVICE" ] && [ "$DEVICE" != "all" ]; then
-            echo 'matrix={"device":["'"$DEVICE"'"]}' >> $GITHUB_OUTPUT
+            bash scripts/device-matrix.sh "$DEVICE" >> $GITHUB_OUTPUT
           else
-            echo 'matrix={"device":["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]}' >> $GITHUB_OUTPUT
+            bash scripts/device-matrix.sh all >> $GITHUB_OUTPUT
           fi
 
   build:
@@ -195,25 +202,12 @@ jobs:
       - name: Pack artifacts
         run: |
           cd src
-          mkdir -p "../release/${{ matrix.device }}"
-
-          shopt -s nullglob
-          mapfile -t artifacts < <(
-            find bin/targets -type f \( \
-              -name "*.bin" -o -name "*.img.gz" -o -name "*.vmdk" -o \
-              -name "*.qcow2" -o -name "*.sdcard.img" -o -name "*-sysupgrade.*" \
-            \)
-          )
-
-          if [ "${#artifacts[@]}" -eq 0 ]; then
-            echo "ERROR: no firmware artifacts found under bin/targets"
-            find bin/targets -type f | head -50 || true
-            exit 1
-          fi
-
-          cp "${artifacts[@]}" "../release/${{ matrix.device }}/"
-          cd "../release/${{ matrix.device }}"
-          sha256sum * > sha256sums.txt
+          bash ${{ github.workspace }}/scripts/pack-firmware.sh \
+            "${{ matrix.device }}" \
+            "${{ needs.setup.outputs.repo }}" \
+            "${{ github.workspace }}/configs/${{ needs.setup.outputs.repo }}/${{ matrix.device }}.config" \
+            "bin/targets" \
+            "../release/${{ matrix.device }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -226,8 +220,14 @@ jobs:
         if: success() && github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.setup.outputs.repo }}-${{ matrix.device }}-${{ github.run_number }}
-          name: ${{ needs.setup.outputs.repo }} ${{ matrix.device }} - Build ${{ github.run_number }}
-          files: release/${{ matrix.device }}/*
+          tag_name: Jas0n0ss-${{ needs.setup.outputs.repo }}-${{ matrix.device }}-${{ github.run_number }}
+          name: "Jas0n0ss OpenWrt (${{ needs.setup.outputs.repo }}) — ${{ matrix.device }} (#${{ github.run_number }})"
+          body: |
+            ## Jas0n0ss OpenWrt
+
+            - **Source tree**: `${{ needs.setup.outputs.repo }}`
+            - **Device**: `${{ matrix.device }}`
+            - **Firmware repo**: https://github.com/Jas0n0ss/openwrt-lede-builder
+          files: release/${{ matrix.device }}/Jas0n0ss-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

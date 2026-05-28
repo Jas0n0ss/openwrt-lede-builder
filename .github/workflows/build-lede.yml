@@ -4,15 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: '设备'
+        description: '设备代号 (见 configs/devices.list)'
         required: true
         default: 'all'
         type: choice
         options:
           - all
+          - xiaomi-ax3600
+          - xiaomi-ax9000
+          - xiaomi-wr30u
+          - xiaomi-ax6000
+          - redmi-ax6000
+          - phicomm-k2p
+          - xiaomi-3g
+          - xiaomi-cr660x
           - r2s
-          - cr660x
-          - ax6000
           - x86_64
           - raspberrypi-4b
   schedule:
@@ -35,12 +41,14 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v4
       - id: set-matrix
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.device }}" != "all" ]; then
-            echo 'matrix={"device":["${{ github.event.inputs.device }}"]}' >> $GITHUB_OUTPUT
+          DEVICE="${{ github.event.inputs.device }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "$DEVICE" ] && [ "$DEVICE" != "all" ]; then
+            bash scripts/device-matrix.sh "$DEVICE" >> $GITHUB_OUTPUT
           else
-            echo 'matrix={"device":["r2s","cr660x","ax6000","x86_64","raspberrypi-4b"]}' >> $GITHUB_OUTPUT
+            bash scripts/device-matrix.sh all >> $GITHUB_OUTPUT
           fi
 
   build:
@@ -69,7 +77,6 @@ jobs:
           sudo docker image prune -af
           df -h
 
-      # ===== 缓存步骤 =====
       - name: Cache downloads (dl)
         uses: actions/cache@v4
         with:
@@ -170,34 +177,18 @@ jobs:
             make package/xray-core/clean
             make -j1 V=s
           fi
-          ccache -s  # 显示最终缓存统计
+          ccache -s
 
       - name: Prepare artifacts
         run: |
           cd lede
-          mkdir -p ../release/${{ matrix.device }}
-          shopt -s nullglob
-          mapfile -t artifacts < <(
-            find bin/targets/ -type f \( \
-              -name "*.img.gz" -o -name "*.bin" -o -name "*.vmdk" -o \
-              -name "*.qcow2" -o -name "*.sdcard.img" -o -name "*-sysupgrade.*" \
-            \)
-          )
-          if [ "${#artifacts[@]}" -eq 0 ]; then
-            echo "错误: bin/targets 下未找到固件"
-            find bin/targets -type f | head -50 || true
-            exit 1
-          fi
-          cp "${artifacts[@]}" "../release/${{ matrix.device }}/"
-          cd ../release/${{ matrix.device }}
-          if ! ls * >/dev/null 2>&1; then
-            echo "错误: 未找到固件产物"
-            exit 1
-          fi
-          sha256sum * > sha256sums.txt
-          echo "=== 生成的固件 ==="
-          ls -lh
-          
+          bash ${{ github.workspace }}/scripts/pack-firmware.sh \
+            "${{ matrix.device }}" \
+            "lede" \
+            "${{ github.workspace }}/configs/lede/${{ matrix.device }}.config" \
+            "bin/targets" \
+            "../release/${{ matrix.device }}"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -209,19 +200,16 @@ jobs:
         if: success() && github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: LEDE-${{ matrix.device }}-${{ github.run_number }}
-          name: "LEDE Firmware for ${{ matrix.device }} - Build ${{ github.run_number }}"
+          tag_name: Jas0n0ss-lede-${{ matrix.device }}-${{ github.run_number }}
+          name: "Jas0n0ss OpenWrt (LEDE) — ${{ matrix.device }} (#${{ github.run_number }})"
           body: |
-            ## LEDE 固件自动构建
-            - **设备**: ${{ matrix.device }}
+            ## Jas0n0ss OpenWrt (LEDE)
+
+            - **设备代号**: `${{ matrix.device }}`
+            - **固件命名**: `Jas0n0ss-lede-<代号>-<OpenWrt设备>-<平台>-<类型>.<后缀>`
+            - **源码**: https://github.com/Jas0n0ss/openwrt-lede-builder
             - **管理地址**: http://10.10.10.1
             - **用户名**: root | **密码**: password
-          files: |
-            release/${{ matrix.device }}/*.img.gz
-            release/${{ matrix.device }}/*.bin
-            release/${{ matrix.device }}/*.vmdk
-            release/${{ matrix.device }}/*.qcow2
-            release/${{ matrix.device }}/*.sdcard.img
-            release/${{ matrix.device }}/*-sysupgrade.*
+          files: release/${{ matrix.device }}/Jas0n0ss-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

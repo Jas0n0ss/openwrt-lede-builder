@@ -10,15 +10,49 @@
 
 ## 支持的设备
 
-| 设备 | 代号 | 架构 | 固件格式 |
-|------|------|------|----------|
-| FriendlyARM NanoPi R2S | `r2s` | Rockchip ARMv8 | `.img.gz` |
-| 小米 CR660x (CR6606/6608/6609) | `cr660x` | MediaTek MT7621 | `.bin` |
-| 红米 Redmi AX6000 | `ax6000` | MediaTek MT7986 | `.bin` |
-| x86_64 软路由 | `x86_64` | x86_64 | `.img.gz` / `.vmdk` / `.qcow2` |
-| 树莓派 4B | `raspberrypi-4b` | BCM2711 | `.img.gz` / `.img` |
+设备代号统一为 **小写 + 连字符**（见 [`configs/devices.list`](configs/devices.list)），与 `configs/lede/<代号>.config` 一一对应。
 
-编译时可选择 **单个设备** 或 **`all`**（全部设备并行构建）。
+| 设备 | 标准代号 | OpenWrt 平台 / 机型 | 核心无线 / 驱动 |
+|------|----------|---------------------|-----------------|
+| 小米 AX3600 | `xiaomi-ax3600` | qualcommax / ipq807x | `ipq-wifi-xiaomi_ax3600`, ath10k/ath11k |
+| 小米 AX9000 | `xiaomi-ax9000` | qualcommax / ipq807x | `ipq-wifi-xiaomi_ax9000`, ath11k QCN9074 |
+| 小米 WR30U | `xiaomi-wr30u` | mediatek filogic / mt7981 | `kmod-mt7981-firmware`, `mt7981-wo-firmware` |
+| 小米 AX6000 | `xiaomi-ax6000` | mediatek filogic / Redmi AX6000 | 同 `redmi-ax6000`（mt7986） |
+| 红米 AX6000 | `redmi-ax6000` | mediatek filogic / mt7986 | `kmod-mt7986-firmware`, `mt7986-wo-firmware` |
+| 斐讯 K2P | `phicomm-k2p` | ramips / mt7621 | `kmod-mt7615d_dbdc` |
+| 小米路由 3G | `xiaomi-3g` | ramips / mt7621 | `kmod-mt7603`, `kmod-mt76x2` |
+| 小米 CR660x | `xiaomi-cr660x` | ramips / mt7621 | `kmod-mt7915-firmware` |
+| NanoPi R2S | `r2s` | rockchip / armv8 | `kmod-r8168`, USB 网卡 |
+| x86_64 软路由 | `x86_64` | x86_64 / generic | igb / r8169 / virtio |
+| 树莓派 4B | `raspberrypi-4b` | bcm27xx / bcm2711 | `kmod-brcmfmac` |
+
+编译时可选择 **单个代号** 或 **`all`**（按 `devices.list` 全部并行）。
+
+> 已移除旧代号 `ax6000`、`cr660x`，请改用 `redmi-ax6000`、`xiaomi-cr660x`。
+
+### 固件文件命名
+
+Release / Artifacts **仅包含最终可刷写的固件**（不含 `sha256sums`、manifest、内核碎片等）。
+
+命名规则（由 `scripts/pack-firmware.sh` 根据设备 `.config` 自动生成）：
+
+```text
+Jas0n0ss-<源码>-<代号>-<OpenWrt设备名>-<平台>-<类型>.<后缀>
+```
+
+`<源码>` 为 `lede` 或 `immortalwrt`，对应该次构建使用的配置与源码树。
+
+示例：
+
+| 源码 | 代号 | 示例文件名 |
+|------|------|------------|
+| `lede` | `redmi-ax6000` | `Jas0n0ss-lede-redmi-ax6000-xiaomi-redmi-router-ax6000-mediatek-filogic-sysupgrade.bin` |
+| `lede` | `xiaomi-cr660x` | `Jas0n0ss-lede-xiaomi-cr660x-xiaomi-mi-router-cr660x-ramips-mt7621-sysupgrade.bin` |
+| `lede` | `xiaomi-ax3600` | `Jas0n0ss-lede-xiaomi-ax3600-xiaomi-ax3600-qualcommax-ipq807x-sysupgrade.bin` |
+| `lede` | `r2s` | `Jas0n0ss-lede-r2s-nanopi-r2s-rockchip-armv8-sysupgrade.img.gz` |
+| `lede` | `x86_64` | `Jas0n0ss-lede-x86_64-generic-x86-64-combined.img.gz` |
+
+刷机后 LuCI 页脚与系统信息仅展示 **@Jas0n0ss** 与 [固件源码仓库](https://github.com/Jas0n0ss/openwrt-lede-builder)。
 
 ---
 
@@ -66,18 +100,21 @@
 1. Fork 本仓库到你的 GitHub 账号。
 2. **Settings → Actions → General**：允许所有 Actions；**Workflow permissions** 设为 **Read and write**。
 3. 打开 **Actions**，选择上述工作流之一，点击 **Run workflow**。
-4. 选择 **device**（`all` 或 `r2s` / `cr660x` / `ax6000` / `x86_64` / `raspberrypi-4b`）。
+4. 选择 **device**（`all` 或 `configs/devices.list` 中的任一标准代号）。
 5. 构建约 1–2 小时；在任务 **Artifacts** 或 **Releases**（仅手动触发）中下载固件。
 
 ### 目录结构
 
 ```
 configs/
-  lede/              # LEDE 通用 + 各设备配置
-  immortalwrt/       # ImmortalWrt 风格设备配置
-  custom-plugins.config  # 插件与依赖（所有工作流合并使用）
+  devices.list       # 标准设备代号列表（CI matrix）
+  lede/              # 每设备 target + 无线驱动（精简）
+  immortalwrt/       # 与 lede 设备配置同步
+  custom-plugins.config  # PassWall / MosDNS / TurboACC 等插件
 scripts/
-  setup-custom-packages.sh  # feeds + 插件源码安装
+  device-matrix.sh   # 生成 GitHub Actions matrix
+  pack-firmware.sh   # 仅打包并重命名最终固件
+  setup-custom-packages.sh  # feeds + 插件源码
 files/               # 刷机后 overlay（IP、主题、banner 等）
 ```
 
@@ -94,7 +131,7 @@ bash /path/to/openwrt-builder/scripts/setup-custom-packages.sh "$(pwd)" lede
 
 # 合并配置
 cat /path/to/openwrt-builder/configs/lede/common.config > .config
-cat /path/to/openwrt-builder/configs/lede/r2s.config >> .config   # 按需替换设备
+cat /path/to/openwrt-builder/configs/lede/redmi-ax6000.config >> .config   # 按需替换代号
 cat /path/to/openwrt-builder/configs/custom-plugins.config >> .config
 make defconfig
 
