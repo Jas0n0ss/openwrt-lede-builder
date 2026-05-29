@@ -410,13 +410,22 @@ jobs:
           fi
 
           cat "${{ github.workspace }}/configs/snippets/turboacc.config" >> .config
-          ./scripts/config -e PACKAGE_kmod-nft-fullcone
-          ./scripts/config -e PACKAGE_kmod-tcp-bbr
-          ./scripts/config -d PACKAGE_kmod-nft-offload 2>/dev/null || true
-          ./scripts/config -e PACKAGE_luci-app-turboacc
-          ./scripts/config -e PACKAGE_luci-app-turboacc_INCLUDE_BBR_CCA
-          ./scripts/config -e PACKAGE_luci-app-turboacc_INCLUDE_NFT_FULLCONE
-          ./scripts/config -d PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING 2>/dev/null || true
+          # Do not use ./scripts/config here: some upstream trees have scripts/config as a directory.
+          sed -i \
+            -e '/^CONFIG_PACKAGE_luci-app-turboacc.*/d' \
+            -e '/^CONFIG_PACKAGE_kmod-nft-fullcone=y$/d' \
+            -e '/^CONFIG_PACKAGE_kmod-tcp-bbr=y$/d' \
+            -e '/^CONFIG_PACKAGE_kmod-nft-offload=y$/d' \
+            -e '/^# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING is not set$/d' \
+            .config
+          {
+            echo "CONFIG_PACKAGE_kmod-nft-fullcone=y"
+            echo "CONFIG_PACKAGE_kmod-tcp-bbr=y"
+            echo "CONFIG_PACKAGE_luci-app-turboacc=y"
+            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_BBR_CCA=y"
+            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_NFT_FULLCONE=y"
+            echo "# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING is not set"
+          } >> .config
 
           make oldconfig > turboacc-oldconfig.log 2>&1 || { cat turboacc-oldconfig.log; exit 1; }
           cat turboacc-oldconfig.log
