@@ -204,14 +204,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/dl
-          key: dl-${{ env.REPO }}-kconfig-fix-v7-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh') }}
+          key: dl-${{ env.REPO }}-kconfig-fix-v8-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh') }}
           restore-keys: dl-${{ env.REPO }}-
 
       - name: Cache feeds
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/feeds
-          key: feeds-${{ env.REPO }}-kconfig-fix-v7-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh') }}
+          key: feeds-${{ env.REPO }}-kconfig-fix-v8-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh') }}
           restore-keys: feeds-${{ env.REPO }}-
 
       - name: Scrub cached feeds before setup (inline CI fix)
@@ -283,9 +283,43 @@ jobs:
             ecj fastjar java-propose-classpath libncurses5-dev libncursesw5-dev \
             libz-dev curl cmake jq rename tar
 
+      - name: Configure GitHub mirror for China
+        run: |
+          # Configure GitHub mirrors to avoid download failures in CI
+          git config --global url."https://ghproxy.com/https://github.com/".insteadOf "https://github.com/" || true
+          git config --global url."https://mirror.ghproxy.com/https://github.com/".insteadOf "https://github.com/" || true
+          # Also set environment variables for wget/curl
+          echo "GHPROXY=https://ghproxy.com/" >> "$GITHUB_ENV"
+          echo "GITHUB_MIRROR=https://ghproxy.com/https://github.com/" >> "$GITHUB_ENV"
+
+      - name: Pre-download problematic packages
+        working-directory: ${{ env.SRC_DIR }}
+        run: |
+          mkdir -p dl
+          # Pre-download shadowsocks-libev and simple-obfs with retries and mirrors
+          for pkg in \
+            "shadowsocks-libev-3.3.5.tar.xz|https://github.com/shadowsocks/shadowsocks-libev/releases/download/v3.3.5/shadowsocks-libev-3.3.5.tar.gz" \
+            "simple-obfs-0.0.5.tar.xz|https://github.com/shadowsocks/simple-obfs/archive/v0.0.5.tar.gz"; do
+            filename="${pkg%%|*}"
+            url="${pkg##*|}"
+            mirror_url="https://ghproxy.com/${url}"
+            if [ ! -f "dl/${filename}" ]; then
+              echo "Pre-downloading ${filename}..."
+              # Try mirror first, then original
+              curl -fsSL --retry 3 --connect-timeout 30 "${mirror_url}" -o "dl/${filename}" 2>/dev/null || \
+                curl -fsSL --retry 3 --connect-timeout 30 "${url}" -o "dl/${filename}" 2>/dev/null || \
+                echo "Warning: Failed to download ${filename}, will try during build"
+            fi
+          done
+          ls -la dl/ 2>/dev/null || true
+
       - name: Setup feeds and packages
         working-directory: ${{ env.SRC_DIR }}
-        run: bash ${{ github.workspace }}/scripts/setup-custom-packages.sh . append ${{ github.workspace }}/configs
+        run: |
+          # Export mirror settings for the script
+          export GHPROXY="https://ghproxy.com/"
+          export GITHUB_MIRROR="https://ghproxy.com/https://github.com/"
+          bash ${{ github.workspace }}/scripts/setup-custom-packages.sh . append ${{ github.workspace }}/configs
 
       - name: Scrub feeds after setup (inline CI fix)
         working-directory: ${{ env.SRC_DIR }}
