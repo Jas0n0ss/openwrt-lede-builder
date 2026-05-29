@@ -40,7 +40,7 @@ Jas0n0ss-<lede|immortalwrt>-<代号>-<设备名>-<平台>-<类型>.<后缀>
 
 | 类别 | 内容 |
 |------|------|
-| 插件 | PassWall、MosDNS、TurboACC、TTYD、ARP 绑定、Aurora 主题 |
+| 插件 | PassWall、MosDNS、TurboACC（BBR + nft-fullcone）、TTYD、ARP 绑定、Aurora 主题 |
 | 语言 | LuCI 默认 **简体中文**（`luci-i18n-*-zh-cn` + 首次启动 `lang=zh_cn`） |
 | 配置 | [`configs/custom-plugins.config`](configs/custom-plugins.config) + [`scripts/setup-custom-packages.sh`](scripts/setup-custom-packages.sh) |
 | Overlay | LAN `10.10.10.1`、Aurora 主题、Dropbear banner、root `bash` + oh-my-bash |

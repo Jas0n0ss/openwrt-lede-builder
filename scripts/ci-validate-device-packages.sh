@@ -79,6 +79,7 @@ while IFS= read -r dev || [ -n "$dev" ]; do
       fi
       ;;
     xiaomi-wr30u|xiaomi-ax6000|redmi-ax6000)
+      # turboacc enabled in ci-enable-turboacc.sh, not in device .config
       require_in "$cfg" \
         '^CONFIG_PACKAGE_kmod-mt7915e=y' \
         '^CONFIG_PACKAGE_.*-firmware=y' \

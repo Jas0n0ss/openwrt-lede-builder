@@ -36,6 +36,8 @@ if [ "$MODE" = "full" ]; then
   for pkg in luci-app-mosdns luci-app-turboacc luci-theme-aurora luci-app-arpbind; do
     [ -f "package/${pkg}/Makefile" ] || fail "missing custom package/${pkg}/Makefile"
   done
+  [ -f package/nft-fullcone/Makefile ] \
+    || fail "missing package/nft-fullcone (TurboACC fullcone kmod)"
 fi
 
 [ -d package ] || fail "package/ directory missing"

@@ -42,7 +42,6 @@ verify_makefile() {
   }
 }
 
-# Cached feeds may contain kenzo/small — scrub before any feeds update
 bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
 
 echo "==> Appending PassWall feeds to feeds.conf.default"
@@ -73,6 +72,7 @@ BASE_PACKAGES=(
   maccalc wireless-regdb iw
   luci-i18n-passwall-zh-cn luci-i18n-opkg-zh-cn luci-i18n-ttyd-zh-cn luci-i18n-arpbind-zh-cn
   kmod-mt7615-firmware kmod-mt7915-firmware
+  kmod-tcp-bbr
   pcre2 libpcre2 libpcre2-8 libxml2 libunistring
   libev libsodium c-ares libcurl libudns
   boost boost-system boost-program_options boost-date_time
@@ -80,6 +80,7 @@ BASE_PACKAGES=(
   libpam zoneinfo-all
   luci-compat luci-proto-ipv6 luci-lua-runtime
   ttyd luci-app-ttyd libwebsockets-full libuv libjson-c libcap
+  kmod-nft-core kmod-nf-conntrack
   jsonfilter v2ray-geoip v2ray-geosite
   golang
 )
@@ -107,12 +108,15 @@ if [ ! -d package/luci-app-mosdns ]; then
   echo "    installed MosDNS"
 fi
 
-if [ ! -d package/luci-app-turboacc ]; then
+if [ ! -d package/luci-app-turboacc ] || [ ! -d package/nft-fullcone ]; then
+  rm -rf package/luci-app-turboacc package/nft-fullcone 2>/dev/null || true
   clone_repo "$TMPDIR/turboacc-luci" -b luci https://github.com/chenmozhijin/turboacc
+  clone_repo "$TMPDIR/turboacc-pkg" -b package https://github.com/chenmozhijin/turboacc
   cp -a "$TMPDIR/turboacc-luci/luci-app-turboacc" package/
-  # Do NOT copy package/nft-fullcone — duplicates kmod-nft-fullcone and causes Kconfig cycle with luci-app-turboacc
-  verify_makefile package/luci-app-turboacc/Makefile "TurboACC"
-  echo "    installed TurboACC (LuCI only)"
+  cp -a "$TMPDIR/turboacc-pkg/nft-fullcone" package/
+  verify_makefile package/luci-app-turboacc/Makefile "TurboACC LuCI"
+  verify_makefile package/nft-fullcone/Makefile "nft-fullcone kernel module"
+  echo "    installed TurboACC (luci-app-turboacc + nft-fullcone)"
 fi
 
 if [ ! -d package/luci-theme-aurora ]; then
@@ -137,13 +141,15 @@ CONFIG_FILES=(
   "$CONFIG_ROOT/lede/common.config"
   "$CONFIG_ROOT/immortalwrt/common.config"
   "$CONFIG_ROOT/custom-plugins.config"
+  "$CONFIG_ROOT/snippets/turboacc.config"
 )
 for cfg in "${CONFIG_FILES[@]}"; do
   [ -f "$cfg" ] || continue
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
     case "$pkg" in
-      kmod-nft-fullcone|kmod-nft-offload|kmod-tcp-bbr|nftables-json|nftables-nojson) continue ;;
+      nftables-json|nftables-nojson) continue ;;
+      luci-app-turboacc|kmod-nft-fullcone|kmod-nft-offload) continue ;;
     esac
     install_pkg "$pkg" || echo "    skip config package: ${pkg}"
   done < <("$EXTRACT_PKG" "$cfg")
@@ -151,4 +157,13 @@ done
 
 bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/verify-setup.sh" "$(pwd)" full
+
+# TurboACC tree must be complete before image build
+for req in package/luci-app-turboacc/Makefile package/nft-fullcone/Makefile; do
+  [ -f "$req" ] || {
+    echo "ERROR: TurboACC incomplete: missing ${req}" >&2
+    exit 1
+  }
+done
+
 echo "==> Custom package setup finished"

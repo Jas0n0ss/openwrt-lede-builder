@@ -16,22 +16,19 @@ patch_dnsmasq() {
   fi
 }
 
-patch_turboacc_makefile() {
-  local mk
-  for mk in package/luci-app-turboacc/Makefile feeds/*/luci-app-turboacc/Makefile; do
-    [ -f "$mk" ] || continue
-    # Remove conditional DEPENDS that create luci-app-turboacc <-> kmod-nft-fullcone cycle
-    sed -i '/kmod-nft-fullcone/d' "$mk"
-    sed -i '/kmod-nft-offload/d' "$mk"
-    sed -i '/INCLUDE_NFT_FULLCONE/,/endef/{
-      /default y/s/default y/default n/
-    }' "$mk"
-    sed -i '/INCLUDE_BBR_CCA/,/endef/{
-      /default y/s/default y/default n/
-    }' "$mk"
-    echo "==> patch-src-kconfig: TurboACC stripped nft kmod DEPENDS in ${mk}"
-  done
+# Remove feeds duplicate of kmod-nft-fullcone; keep package/nft-fullcone from turboacc clone
+purge_feeds_kmod_nft_fullcone() {
+  local mk dir
+  while IFS= read -r mk; do
+    [ -n "$mk" ] || continue
+    case "$mk" in
+      ./package/nft-fullcone/*|./package/nft-fullcone/Makefile) continue ;;
+    esac
+    dir="$(dirname "$mk")"
+    rm -rf "$dir"
+    echo "==> patch-src-kconfig: removed duplicate ${dir}"
+  done < <(grep -Rl 'PKG_NAME:=kmod-nft-fullcone' feeds package/feeds 2>/dev/null || true)
 }
 
 patch_dnsmasq
-patch_turboacc_makefile
+purge_feeds_kmod_nft_fullcone
