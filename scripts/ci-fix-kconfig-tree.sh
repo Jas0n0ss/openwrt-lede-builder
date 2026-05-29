@@ -22,6 +22,7 @@ rm -rf feeds/small feeds/kenzo package/feeds/small package/feeds/kenzo 2>/dev/nu
 
 bash "${SCRIPT_DIR}/purge-broken-feed-packages.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/patch-src-kconfig.sh" "$(pwd)"
+bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
 
 # nftables-json dupes must be gone; kmod-nft-fullcone may exist via package/nft-fullcone (TurboACC)
 nft_json_count=0
@@ -39,6 +40,31 @@ fi
 
 if [ -f package/luci-app-turboacc/Makefile ] && [ ! -f package/nft-fullcone/Makefile ]; then
   echo "ERROR: luci-app-turboacc without package/nft-fullcone (incomplete TurboACC)" >&2
+  exit 1
+fi
+
+# At most one luci-app-turboacc / nft-fullcone package tree (duplicate = Kconfig self-cycle)
+luci_dupes=0
+while IFS= read -r mk; do
+  [ -n "$mk" ] || continue
+  luci_dupes=$((luci_dupes + 1))
+done < <(grep -Rl --include=Makefile 'PKG_NAME:=luci-app-turboacc' package package/feeds 2>/dev/null || true)
+
+if [ "$luci_dupes" -gt 1 ]; then
+  echo "ERROR: ${luci_dupes} luci-app-turboacc packages still present (expected 0–1)" >&2
+  grep -Rl --include=Makefile 'PKG_NAME:=luci-app-turboacc' package package/feeds 2>/dev/null >&2 || true
+  exit 1
+fi
+
+kmod_dupes=0
+while IFS= read -r mk; do
+  [ -n "$mk" ] || continue
+  kmod_dupes=$((kmod_dupes + 1))
+done < <(grep -Rl 'KernelPackage/nft-fullcone' package package/feeds 2>/dev/null || true)
+
+if [ "$kmod_dupes" -gt 1 ]; then
+  echo "ERROR: ${kmod_dupes} KernelPackage/nft-fullcone definitions (expected 0–1)" >&2
+  grep -Rl 'KernelPackage/nft-fullcone' package package/feeds 2>/dev/null >&2 || true
   exit 1
 fi
 

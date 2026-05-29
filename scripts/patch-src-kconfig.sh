@@ -16,19 +16,4 @@ patch_dnsmasq() {
   fi
 }
 
-# Remove feeds duplicate of kmod-nft-fullcone; keep package/nft-fullcone from turboacc clone
-purge_feeds_kmod_nft_fullcone() {
-  local mk dir
-  while IFS= read -r mk; do
-    [ -n "$mk" ] || continue
-    case "$mk" in
-      ./package/nft-fullcone/*|./package/nft-fullcone/Makefile) continue ;;
-    esac
-    dir="$(dirname "$mk")"
-    rm -rf "$dir"
-    echo "==> patch-src-kconfig: removed duplicate ${dir}"
-  done < <(grep -Rl 'PKG_NAME:=kmod-nft-fullcone' feeds package/feeds 2>/dev/null || true)
-}
-
 patch_dnsmasq
-purge_feeds_kmod_nft_fullcone

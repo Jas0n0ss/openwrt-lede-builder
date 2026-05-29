@@ -116,6 +116,8 @@ if [ ! -d package/luci-app-turboacc ] || [ ! -d package/nft-fullcone ]; then
   cp -a "$TMPDIR/turboacc-pkg/nft-fullcone" package/
   verify_makefile package/luci-app-turboacc/Makefile "TurboACC LuCI"
   verify_makefile package/nft-fullcone/Makefile "nft-fullcone kernel module"
+  bash "${SCRIPT_DIR}/patch-turboacc-packages.sh" "$(pwd)"
+  bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
   echo "    installed TurboACC (luci-app-turboacc + nft-fullcone)"
 fi
 

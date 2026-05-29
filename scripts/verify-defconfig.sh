@@ -11,6 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SRC_DIR"
 
 bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
+bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
+bash "${SCRIPT_DIR}/ci-turboacc-stash.sh" "$(pwd)" hide
+bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
 
 [ -f .config ] || {
   echo "ERROR: .config missing in $SRC_DIR" >&2
@@ -20,7 +23,7 @@ bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
-echo "==> verify-defconfig: base make defconfig"
+echo "==> verify-defconfig: base make defconfig (TurboACC packages stashed)"
 set +e
 make defconfig >"$log" 2>&1
 rc=$?
@@ -38,6 +41,10 @@ if grep -q 'recursive dependency detected' "$log"; then
   exit 1
 fi
 
+bash "${SCRIPT_DIR}/ci-turboacc-stash.sh" "$(pwd)" unhide
+bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
+bash "${SCRIPT_DIR}/patch-turboacc-packages.sh" "$(pwd)"
+bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/ci-enable-turboacc.sh" "$(pwd)" "$WORKSPACE"
 
 for bad in libselinux shadowsocks-rust naiveproxy; do

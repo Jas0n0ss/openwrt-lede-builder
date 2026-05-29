@@ -8,6 +8,10 @@ SRC_DIR="${1:?source directory required}"
 WORKSPACE="${2:?builder repo root}"
 CFG_SNIP="${WORKSPACE}/configs/snippets/turboacc.config"
 cd "$SRC_DIR"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
+bash "${SCRIPT_DIR}/patch-turboacc-packages.sh" "$(pwd)"
 
 [ -f "$CFG_SNIP" ] || {
   echo "ERROR: missing ${CFG_SNIP}" >&2

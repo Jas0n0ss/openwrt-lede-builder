@@ -99,14 +99,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/dl
-          key: dl-${{ env.REPO }}-kconfig-fix-v2-${{ hashFiles('configs/**', 'scripts/ci-fix-kconfig-tree.sh', 'scripts/setup-custom-packages.sh', 'scripts/ci-prepare-config.sh', 'scripts/ci-enable-turboacc.sh', 'scripts/verify-defconfig.sh', 'scripts/patch-feeds.sh') }}
+          key: dl-${{ env.REPO }}-kconfig-fix-v3-${{ hashFiles('configs/**', 'scripts/ci-fix-kconfig-tree.sh', 'scripts/setup-custom-packages.sh', 'scripts/ci-prepare-config.sh', 'scripts/ci-enable-turboacc.sh', 'scripts/verify-defconfig.sh', 'scripts/purge-turboacc-duplicates.sh', 'scripts/ci-turboacc-stash.sh') }}
           restore-keys: dl-${{ env.REPO }}-
 
       - name: Cache feeds
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/feeds
-          key: feeds-${{ env.REPO }}-kconfig-fix-v2-${{ hashFiles('configs/**', 'scripts/ci-fix-kconfig-tree.sh', 'scripts/setup-custom-packages.sh', 'scripts/purge-broken-feed-packages.sh', 'scripts/patch-src-kconfig.sh', 'scripts/patch-feeds.sh', 'scripts/ci-enable-turboacc.sh') }}
+          key: feeds-${{ env.REPO }}-kconfig-fix-v3-${{ hashFiles('configs/**', 'scripts/ci-fix-kconfig-tree.sh', 'scripts/setup-custom-packages.sh', 'scripts/purge-broken-feed-packages.sh', 'scripts/patch-src-kconfig.sh', 'scripts/purge-turboacc-duplicates.sh', 'scripts/ci-turboacc-stash.sh', 'scripts/patch-turboacc-packages.sh') }}
           restore-keys: feeds-${{ env.REPO }}-
 
       - name: Scrub cached feeds before setup
