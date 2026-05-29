@@ -11,7 +11,7 @@
 | `~/.ccache` | **按 OpenWrt 平台** 共享 | 如多个 filogic 机型共用一份编译缓存 |
 | `CONFIG_CCACHE=y` | 编译器级别 | 配合 `ccache` 包与 PATH |
 
-平台 slug 由 `scripts/cache-platform.sh` 从设备 `.config` 解析（如 `mediatek-filogic`、`ramips-mt7621`）。
+平台 slug 在 `build.yml` 中从设备 `.config` 解析（如 `mediatek-filogic`、`ramips-mt7621`）。
 
 ## 环境变量（workflow 内）
 

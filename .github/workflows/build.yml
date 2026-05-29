@@ -38,6 +38,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: firmware-${{ github.ref_name }}-${{ github.event.inputs.source || 'immortalwrt' }}-${{ github.event.inputs.device || 'all' }}
+  cancel-in-progress: true
+
 env:
   TZ: Asia/Shanghai
   CCACHE_DIR: ~/.ccache
@@ -49,6 +53,7 @@ env:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
       repo: ${{ steps.resolve.outputs.repo }}
@@ -60,13 +65,80 @@ jobs:
           SOURCE="${{ github.event.inputs.source }}"
           DEVICE="${{ github.event.inputs.device }}"
           [ -n "$SOURCE" ] || SOURCE="immortalwrt"
-          bash scripts/ci-resolve-build.sh "$SOURCE" "$DEVICE" "${{ github.event_name }}" >> "$GITHUB_OUTPUT"
+          EVENT="${{ github.event_name }}"
+
+          case "$SOURCE" in
+            lede)
+              echo "repo=lede" >> "$GITHUB_OUTPUT"
+              echo "upstream=coolsnowwolf/lede" >> "$GITHUB_OUTPUT"
+              ;;
+            immortalwrt)
+              echo "repo=immortalwrt" >> "$GITHUB_OUTPUT"
+              echo "upstream=immortalwrt/immortalwrt" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "ERROR: unknown source '$SOURCE' (use lede or immortalwrt)" >&2
+              exit 1
+              ;;
+          esac
+
+          LIST="configs/devices.list"
+          [ -f "$LIST" ] || { echo "ERROR: missing $LIST" >&2; exit 1; }
+
+          mapfile -t ALL_DEVICES < <(sed 's/#.*//' "$LIST" | xargs -n1 echo | sed '/^$/d')
+          if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$DEVICE" ] && [ "$DEVICE" != "all" ]; then
+            selected=0
+            for d in "${ALL_DEVICES[@]}"; do
+              if [ "$d" = "$DEVICE" ]; then
+                selected=1
+                break
+              fi
+            done
+            [ "$selected" -eq 1 ] || { echo "ERROR: unknown device '${DEVICE}'" >&2; exit 1; }
+            echo "matrix={\"device\":[\"${DEVICE}\"]}" >> "$GITHUB_OUTPUT"
+            CHECK_DEVICES=("$DEVICE")
+          else
+            json=$(printf '"%s",' "${ALL_DEVICES[@]}" | sed 's/,$//')
+            echo "matrix={\"device\":[${json}]}" >> "$GITHUB_OUTPUT"
+            CHECK_DEVICES=("${ALL_DEVICES[@]}")
+          fi
+
+          for dev in "${CHECK_DEVICES[@]}"; do
+            cfg="configs/${SOURCE}/${dev}.config"
+            [ -f "$cfg" ] || { echo "ERROR: missing $cfg" >&2; exit 1; }
+          done
+
+          # Policy validation: TurboACC/dnsmasq-full/nftables-json must not be enabled in base configs
+          policy_fail=0
+          for repo in lede immortalwrt; do
+            for cfg in "configs/${repo}/common.config" configs/${repo}/*.config; do
+              [ -f "$cfg" ] || continue
+              if grep -qE '^CONFIG_PACKAGE_dnsmasq-full=y|^CONFIG_PACKAGE_dnsmasq_full_.*=y|^CONFIG_PACKAGE_nftables-json=y|^CONFIG_PACKAGE_nftables-nojson=y|^CONFIG_PACKAGE_luci-app-turboacc=y|^CONFIG_PACKAGE_kmod-nft-fullcone=y|^CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y' "$cfg"; then
+                echo "ERROR: forbidden policy symbol in $cfg" >&2
+                policy_fail=1
+              fi
+            done
+          done
+          [ "$policy_fail" -eq 0 ] || exit 1
+
+          # Device package validation (selected source only)
+          for dev in "${CHECK_DEVICES[@]}"; do
+            cfg="configs/${SOURCE}/${dev}.config"
+            grep -q '^CONFIG_TARGET_.*_DEVICE_.*=y' "$cfg" || { echo "ERROR: $cfg missing CONFIG_TARGET_*_DEVICE_*=y" >&2; exit 1; }
+            grep -q '^CONFIG_PACKAGE_wpad-openssl=y' "$cfg" || { echo "ERROR: $cfg missing CONFIG_PACKAGE_wpad-openssl=y" >&2; exit 1; }
+            if grep -qE '^CONFIG_PACKAGE_dnsmasq-full=y|^CONFIG_PACKAGE_nftables-json=y|^CONFIG_PACKAGE_luci-app-turboacc=y|^CONFIG_PACKAGE_kmod-nft-fullcone=y' "$cfg"; then
+              echo "ERROR: $cfg contains forbidden pre-enable package symbol" >&2
+              exit 1
+            fi
+          done
 
   build:
     needs: setup
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     name: ${{ needs.setup.outputs.repo }} · ${{ matrix.device }}
 
@@ -87,7 +159,29 @@ jobs:
 
       - name: Resolve cache platform
         id: cache
-        run: echo "platform=$(bash scripts/cache-platform.sh configs/${REPO}/${{ matrix.device }}.config)" >> "$GITHUB_OUTPUT"
+        run: |
+          cfg="configs/${REPO}/${{ matrix.device }}.config"
+          if line=$(grep -E '^CONFIG_TARGET_.*_DEVICE_.*=y' "$cfg" 2>/dev/null | head -1); then
+            platform=$(echo "$line" | sed -E 's/^CONFIG_TARGET_(.*)_DEVICE_.*/\1/' | tr '_' '-')
+          elif grep -q '^CONFIG_TARGET_x86_64=y' "$cfg" 2>/dev/null; then
+            platform="x86-64"
+          else
+            targets=()
+            while IFS= read -r t; do
+              targets+=("$t")
+            done < <(
+              grep -E '^CONFIG_TARGET_[A-Za-z0-9_]+=y' "$cfg" \
+                | grep -v '_DEVICE_' | grep -v 'ROOTFS' | grep -v 'KERNEL' | grep -v 'IMAGES' \
+                | sed -E 's/^CONFIG_TARGET_(.*)=y/\1/' | tr '_' '-' || true
+            )
+            if [ "${#targets[@]}" -gt 0 ]; then
+              platform=$(IFS=-; echo "${targets[*]}")
+            else
+              platform="unknown"
+            fi
+          fi
+          platform=$(echo "$platform" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/--*/-/g')
+          echo "platform=${platform}" >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
         run: |
@@ -99,14 +193,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/dl
-          key: dl-${{ env.REPO }}-kconfig-fix-v5-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh', 'scripts/ci-prepare-config.sh', 'scripts/sanitize-config.sh') }}
+          key: dl-${{ env.REPO }}-kconfig-fix-v7-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh') }}
           restore-keys: dl-${{ env.REPO }}-
 
       - name: Cache feeds
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/feeds
-          key: feeds-${{ env.REPO }}-kconfig-fix-v5-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh', 'scripts/ci-prepare-config.sh', 'scripts/sanitize-config.sh') }}
+          key: feeds-${{ env.REPO }}-kconfig-fix-v7-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh') }}
           restore-keys: feeds-${{ env.REPO }}-
 
       - name: Scrub cached feeds before setup (inline CI fix)
@@ -204,9 +298,55 @@ jobs:
           bash scripts/install-files-overlay.sh "${{ env.SRC_DIR }}" files
 
       - name: Generate .config
+        working-directory: ${{ env.SRC_DIR }}
         run: |
-          bash ${{ github.workspace }}/scripts/ci-prepare-config.sh \
-            "${REPO}" "${{ matrix.device }}" "${{ github.workspace }}" "${{ github.workspace }}/${{ env.SRC_DIR }}"
+          set -euo pipefail
+          device_cfg="${{ github.workspace }}/configs/${REPO}/${{ matrix.device }}.config"
+          common_cfg="${{ github.workspace }}/configs/${REPO}/common.config"
+          custom_cfg="${{ github.workspace }}/configs/custom-plugins.config"
+          for f in "$device_cfg" "$common_cfg" "$custom_cfg"; do
+            [ -f "$f" ] || { echo "ERROR: missing ${f}" >&2; exit 1; }
+          done
+          cat "$device_cfg" > .config
+          cat "$common_cfg" >> .config
+          cat "$custom_cfg" >> .config
+          for snip in \
+            "${{ github.workspace }}/configs/snippets/wireless-core.config" \
+            "${{ github.workspace }}/configs/snippets/luci-zh-cn.config" \
+            "${{ github.workspace }}/configs/snippets/no-rust-passwall.config" \
+            "${{ github.workspace }}/configs/snippets/no-selinux.config"; do
+            [ -f "$snip" ] && cat "$snip" >> .config
+          done
+          echo "CONFIG_DEVEL=y" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+          sed -i \
+            -e '/^CONFIG_PACKAGE_dnsmasq-full=y$/d' \
+            -e '/^CONFIG_PACKAGE_dnsmasq_full_/d' \
+            -e '/^CONFIG_PACKAGE_nftables-json=y$/d' \
+            -e '/^CONFIG_PACKAGE_nftables-nojson=y$/d' \
+            -e '/^CONFIG_PACKAGE_luci-app-turboacc/d' \
+            -e '/^CONFIG_PACKAGE_kmod-nft-fullcone=y$/d' \
+            -e '/^CONFIG_PACKAGE_kmod-nft-offload=y$/d' \
+            -e '/^CONFIG_PACKAGE_kmod-tcp-bbr=y$/d' \
+            .config
+          sed -i \
+            -e '/^# CONFIG_PACKAGE_dnsmasq-full is not set$/d' \
+            -e '/^# CONFIG_PACKAGE_dnsmasq_full_/d' \
+            -e '/^# CONFIG_PACKAGE_nftables-json is not set$/d' \
+            -e '/^# CONFIG_PACKAGE_nftables-nojson is not set$/d' \
+            -e '/^# CONFIG_PACKAGE_luci-app-turboacc/d' \
+            -e '/^CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_/d' \
+            .config
+          cat >> .config <<'EOF'
+
+# --- Kconfig cycle guards (dnsmasq / duplicate nftables only) ---
+# CONFIG_PACKAGE_dnsmasq-full is not set
+# CONFIG_PACKAGE_dnsmasq_full_nftset is not set
+# CONFIG_PACKAGE_dnsmasq_full_dhcp is not set
+# CONFIG_PACKAGE_nftables-json is not set
+# CONFIG_PACKAGE_nftables-nojson is not set
+EOF
+          echo "==> .config merged and sanitized: ${REPO}/${{ matrix.device }}"
 
       - name: Defconfig and TurboACC (inline CI fix)
         working-directory: ${{ env.SRC_DIR }}
@@ -275,11 +415,26 @@ jobs:
           fi
 
       - name: Compile firmware
+        working-directory: ${{ env.SRC_DIR }}
         run: |
+          set -euo pipefail
           TOOLCHAIN=""
           [ "${REPO}" = "immortalwrt" ] && TOOLCHAIN=1
           echo "Build ${REPO} ${{ matrix.device }} (platform=${{ steps.cache.outputs.platform }})"
-          bash ${{ github.workspace }}/scripts/ci-compile.sh "${{ github.workspace }}/${{ env.SRC_DIR }}" "$TOOLCHAIN"
+          [ -f .config ] || { echo "ERROR: .config missing" >&2; exit 1; }
+          export PATH="/usr/lib/ccache:${PATH:-}"
+          ulimit -n 65535 || true
+          ccache -s 2>/dev/null || true
+          make download -j16 || make download -j8
+          if [ "$TOOLCHAIN" = "1" ]; then
+            make toolchain/compile -j"$(nproc)" || make toolchain/compile -j1 V=s
+          fi
+          if ! make -j"$(nproc)"; then
+            echo "==> Parallel build failed, retrying -j1 V=s..."
+            make -j1 V=s
+          fi
+          ccache -s 2>/dev/null || true
+          echo "==> compile: OK"
 
       - name: Pack firmware
         working-directory: ${{ env.SRC_DIR }}
@@ -295,6 +450,19 @@ jobs:
           name: ${{ env.REPO }}-${{ matrix.device }}
           path: release/${{ matrix.device }}
           retention-days: 7
+
+      - name: Upload debug logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: debug-${{ env.REPO }}-${{ matrix.device }}
+          path: |
+            ${{ env.SRC_DIR }}/defconfig.log
+            ${{ env.SRC_DIR }}/turboacc-oldconfig.log
+            ${{ env.SRC_DIR }}/.config
+            ${{ env.SRC_DIR }}/.config.old
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Release
         if: github.event_name == 'workflow_dispatch'
