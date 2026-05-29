@@ -42,8 +42,6 @@ verify_makefile() {
   }
 }
 
-bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
-
 echo "==> Appending PassWall feeds to feeds.conf.default"
 if [ ! -f feeds.conf.default ]; then
   echo "ERROR: feeds.conf.default not found in $(pwd)" >&2
@@ -155,7 +153,6 @@ for cfg in "${CONFIG_FILES[@]}"; do
   done < <("$EXTRACT_PKG" "$cfg")
 done
 
-bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/verify-setup.sh" "$(pwd)" full
 
 # TurboACC tree must be complete before image build

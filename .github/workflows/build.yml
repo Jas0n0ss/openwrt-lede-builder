@@ -99,19 +99,66 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/dl
-          key: dl-${{ env.REPO }}-kconfig-fix-v4-${{ hashFiles('configs/**', 'scripts/ci-fix-kconfig-tree.sh', 'scripts/setup-custom-packages.sh', 'scripts/ci-prepare-config.sh', 'scripts/ci-enable-turboacc.sh', 'scripts/verify-defconfig.sh') }}
+          key: dl-${{ env.REPO }}-kconfig-fix-v5-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh', 'scripts/ci-prepare-config.sh', 'scripts/sanitize-config.sh') }}
           restore-keys: dl-${{ env.REPO }}-
 
       - name: Cache feeds
         uses: actions/cache@v5
         with:
           path: ${{ env.SRC_DIR }}/feeds
-          key: feeds-${{ env.REPO }}-kconfig-fix-v4-${{ hashFiles('configs/**', 'scripts/ci-fix-kconfig-tree.sh', 'scripts/setup-custom-packages.sh', 'scripts/purge-broken-feed-packages.sh', 'scripts/patch-src-kconfig.sh', 'scripts/ci-enable-turboacc.sh', 'scripts/verify-defconfig.sh') }}
+          key: feeds-${{ env.REPO }}-kconfig-fix-v5-${{ hashFiles('configs/**', '.github/workflows/build.yml', 'scripts/setup-custom-packages.sh', 'scripts/ci-prepare-config.sh', 'scripts/sanitize-config.sh') }}
           restore-keys: feeds-${{ env.REPO }}-
 
-      - name: Scrub cached feeds before setup
+      - name: Scrub cached feeds before setup (inline CI fix)
         working-directory: ${{ env.SRC_DIR }}
-        run: bash ${{ github.workspace }}/scripts/ci-fix-kconfig-tree.sh .
+        run: |
+          set -euo pipefail
+          sed -i '\|kenzok8/openwrt-packages|d; \|kenzok8/small|d' feeds.conf.default 2>/dev/null || true
+          sed -i '\|kenzok8/openwrt-packages|d; \|kenzok8/small|d' feeds.conf 2>/dev/null || true
+          rm -rf feeds/small feeds/kenzo package/feeds/small package/feeds/kenzo 2>/dev/null || true
+
+          while IFS= read -r mk; do
+            [ -n "$mk" ] || continue
+            case "$mk" in ./dl/*|./build_dir/*|./staging_dir/*) continue ;; esac
+            rm -rf "$(dirname "$mk")"
+          done < <(grep -RIlE 'PKG_NAME:=(nftables-json|nftables-nojson)' . 2>/dev/null || true)
+
+          dnsmk="package/network/services/dnsmasq/Makefile"
+          if [ -f "$dnsmk" ]; then
+            sed -i 's/+PACKAGE_dnsmasq_full_nftset:nftables-json//' "$dnsmk"
+          fi
+
+          keep_luci=""
+          keep_kmod=""
+          [ -f package/luci-app-turboacc/Makefile ] && keep_luci="$(cd package/luci-app-turboacc && pwd)"
+          [ -f package/nft-fullcone/Makefile ] && keep_kmod="$(cd package/nft-fullcone && pwd)"
+
+          remove_dup_dir() {
+            local dir="$1" keep="$2"
+            [ -n "$dir" ] || return 0
+            [ -d "$dir" ] || return 0
+            case "$dir" in
+              package/luci-app-turboacc|./package/luci-app-turboacc|package/nft-fullcone|./package/nft-fullcone) return 0 ;;
+            esac
+            local abs
+            abs="$(cd "$dir" && pwd)"
+            [ -n "$keep" ] && [ "$abs" = "$keep" ] && return 0
+            rm -rf "$dir"
+          }
+
+          while IFS= read -r mk; do
+            [ -n "$mk" ] || continue
+            case "$mk" in ./dl/*|./build_dir/*|./staging_dir/*|./.ci-stash-turboacc/*) continue ;; esac
+            remove_dup_dir "$(dirname "$mk")" "$keep_luci"
+          done < <(grep -RIl --include='Makefile' 'PKG_NAME:=luci-app-turboacc' feeds package/feeds package/lean 2>/dev/null || true)
+
+          while IFS= read -r mk; do
+            [ -n "$mk" ] || continue
+            case "$mk" in ./dl/*|./build_dir/*|./staging_dir/*|./.ci-stash-turboacc/*|./package/nft-fullcone/Makefile) continue ;; esac
+            remove_dup_dir "$(dirname "$mk")" "$keep_kmod"
+          done < <(grep -RIlE --include='Makefile' 'PKG_NAME:=nft-fullcone|PKG_NAME:=kmod-nft-fullcone|KernelPackage/nft-fullcone' feeds package/feeds package/lean package 2>/dev/null || true)
+
+          rm -rf feeds/luci/applications/luci-app-turboacc feeds/luci/applications/luci-app-turboacc-chenmozhijin 2>/dev/null || true
 
       - name: Cache ccache
         uses: actions/cache@v5
@@ -135,6 +182,20 @@ jobs:
         working-directory: ${{ env.SRC_DIR }}
         run: bash ${{ github.workspace }}/scripts/setup-custom-packages.sh . append ${{ github.workspace }}/configs
 
+      - name: Scrub feeds after setup (inline CI fix)
+        working-directory: ${{ env.SRC_DIR }}
+        run: |
+          set -euo pipefail
+          sed -i '\|kenzok8/openwrt-packages|d; \|kenzok8/small|d' feeds.conf.default 2>/dev/null || true
+          sed -i '\|kenzok8/openwrt-packages|d; \|kenzok8/small|d' feeds.conf 2>/dev/null || true
+          rm -rf feeds/small feeds/kenzo package/feeds/small package/feeds/kenzo 2>/dev/null || true
+          while IFS= read -r mk; do
+            [ -n "$mk" ] || continue
+            case "$mk" in ./dl/*|./build_dir/*|./staging_dir/*) continue ;; esac
+            rm -rf "$(dirname "$mk")"
+          done < <(grep -RIlE 'PKG_NAME:=(nftables-json|nftables-nojson)' . 2>/dev/null || true)
+          rm -rf feeds/luci/applications/luci-app-turboacc feeds/luci/applications/luci-app-turboacc-chenmozhijin 2>/dev/null || true
+
       - name: Prepare firmware overlay
         working-directory: ${{ github.workspace }}
         run: |
@@ -146,6 +207,72 @@ jobs:
         run: |
           bash ${{ github.workspace }}/scripts/ci-prepare-config.sh \
             "${REPO}" "${{ matrix.device }}" "${{ github.workspace }}" "${{ github.workspace }}/${{ env.SRC_DIR }}"
+
+      - name: Defconfig and TurboACC (inline CI fix)
+        working-directory: ${{ env.SRC_DIR }}
+        run: |
+          set -euo pipefail
+          STASH=".ci-stash-turboacc"
+          restored=0
+          cleanup() {
+            if [ "$restored" -eq 0 ]; then
+              for d in luci-app-turboacc nft-fullcone; do
+                [ -d "${STASH}/${d}" ] || continue
+                rm -rf "package/${d}"
+                mv "${STASH}/${d}" "package/${d}"
+              done
+            fi
+          }
+          trap cleanup EXIT
+
+          mkdir -p "$STASH"
+          for d in luci-app-turboacc nft-fullcone; do
+            if [ -d "package/${d}" ]; then
+              rm -rf "${STASH}/${d}"
+              mv "package/${d}" "${STASH}/${d}"
+            fi
+          done
+
+          make defconfig > defconfig.log 2>&1 || { cat defconfig.log; exit 1; }
+          cat defconfig.log
+          if grep -q 'recursive dependency detected' defconfig.log; then
+            echo "ERROR: recursive dependency detected during base defconfig" >&2
+            exit 1
+          fi
+
+          for d in luci-app-turboacc nft-fullcone; do
+            [ -d "${STASH}/${d}" ] || continue
+            rm -rf "package/${d}"
+            mv "${STASH}/${d}" "package/${d}"
+          done
+          restored=1
+
+          [ -f package/luci-app-turboacc/Makefile ] || { echo "ERROR: missing package/luci-app-turboacc/Makefile" >&2; exit 1; }
+          [ -f package/nft-fullcone/Makefile ] || { echo "ERROR: missing package/nft-fullcone/Makefile" >&2; exit 1; }
+
+          if ! grep -q 'ci-patched-turboacc-defaults' package/luci-app-turboacc/Makefile; then
+            sed -i \
+              -e '/INCLUDE_OFFLOADING/,/^config /{ s/^[[:space:]]*default y if.*/	default n # ci-patched-turboacc-defaults/; }' \
+              -e '/INCLUDE_NFT_FULLCONE/,/^config /{ s/^[[:space:]]*default y[[:space:]]*$/	default n # ci-patched-turboacc-defaults/; }' \
+              -e '/INCLUDE_BBR_CCA/,/^config /{ s/^[[:space:]]*default y[[:space:]]*$/	default n # ci-patched-turboacc-defaults/; }' \
+              package/luci-app-turboacc/Makefile
+          fi
+
+          cat "${{ github.workspace }}/configs/snippets/turboacc.config" >> .config
+          ./scripts/config -e PACKAGE_kmod-nft-fullcone
+          ./scripts/config -e PACKAGE_kmod-tcp-bbr
+          ./scripts/config -d PACKAGE_kmod-nft-offload 2>/dev/null || true
+          ./scripts/config -e PACKAGE_luci-app-turboacc
+          ./scripts/config -e PACKAGE_luci-app-turboacc_INCLUDE_BBR_CCA
+          ./scripts/config -e PACKAGE_luci-app-turboacc_INCLUDE_NFT_FULLCONE
+          ./scripts/config -d PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING 2>/dev/null || true
+
+          make oldconfig > turboacc-oldconfig.log 2>&1 || { cat turboacc-oldconfig.log; exit 1; }
+          cat turboacc-oldconfig.log
+          if grep -q 'recursive dependency detected' turboacc-oldconfig.log; then
+            echo "ERROR: recursive dependency detected after TurboACC enable" >&2
+            exit 1
+          fi
 
       - name: Compile firmware
         run: |

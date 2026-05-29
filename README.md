@@ -77,9 +77,8 @@ scripts/
   setup-custom-packages.sh  # feeds 与第三方包
   patch-feeds.sh            # 固定 xray/sing-box Go 版本
   ci-resolve-build.sh       # CI：解析 source/device matrix
-  ci-prepare-config.sh      # CI：合并 .config + verify-defconfig
+  ci-prepare-config.sh      # CI：合并 .config + sanitize
   verify-setup.sh           # feeds 步骤后校验
-  verify-defconfig.sh       # defconfig 与 Kconfig 检查
   ci-compile.sh             # 下载 + 编译（失败即退出）
   device-matrix.sh          # CI matrix
   pack-firmware.sh          # 产物打包命名

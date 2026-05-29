@@ -24,7 +24,7 @@
 ## 构建脚本链
 
 1. `setup-custom-packages.sh` → `patch-feeds.sh` → `verify-setup.sh`
-2. 生成 `.config` → `verify-defconfig.sh`
+2. 生成 `.config`，并在 `build.yml` 内联执行 base `defconfig` + TurboACC 启用校验
 3. `ci-compile.sh`（失败会 `exit 1`，并行失败会 `-j1 V=s` 重试）
 4. `pack-firmware.sh`（无镜像则失败）
 
@@ -40,7 +40,7 @@
 
 已关闭 `INCLUDE_OFFLOADING`（`kmod-fast-classifier` / shortcut-fe 仅部分平台存在）。保留 BBR + nft-fullcone。
 
-**不要**在 `device.config` / `common.config` / `custom-plugins.config` 里启用 TurboACC（`ci-validate-policy-configs.sh` 会拦）。合并后由 `sanitize-config.sh` 清掉相关行，base `make defconfig` 通过后由 `ci-enable-turboacc.sh` + `configs/snippets/turboacc.config` 一次性打开 `luci-app-turboacc`、`kmod-nft-fullcone`、`kmod-tcp-bbr` 及 `INCLUDE_BBR_CCA` / `INCLUDE_NFT_FULLCONE`。
+**不要**在 `device.config` / `common.config` / `custom-plugins.config` 里启用 TurboACC（`ci-validate-policy-configs.sh` 会拦）。合并后由 `sanitize-config.sh` 清掉相关行，base `make defconfig` 通过后在 workflow 内联一步 + `configs/snippets/turboacc.config` 一次性打开 `luci-app-turboacc`、`kmod-nft-fullcone`、`kmod-tcp-bbr` 及 `INCLUDE_BBR_CCA` / `INCLUDE_NFT_FULLCONE`。
 
 ## 生成 .config（ci-prepare-config.sh）
 
@@ -57,23 +57,23 @@
 | 禁止 | 原因 |
 |------|------|
 | `CONFIG_PACKAGE_dnsmasq-full=y` / `dnsmasq_full_*` | 与 `dnsmasq_full_nftset` 递归依赖 |
-| `CONFIG_PACKAGE_luci-app-turboacc*`（合并阶段） | 仅 `ci-enable-turboacc.sh` 后写入 |
+| `CONFIG_PACKAGE_luci-app-turboacc*`（合并阶段） | 仅 workflow 的 TurboACC 启用步骤后写入 |
 | `CONFIG_PACKAGE_kmod-nft-fullcone=y`（合并阶段） | 同上，避免与 feeds 重复包形成环 |
 
 dnsmasq 使用 target 自带的 **DEFAULT_PACKAGES**（`dnsmasq`），不强行选 `dnsmasq-full`。
 
-**一次性 Kconfig 修复（`scripts/ci-fix-kconfig-tree.sh`）：**
+**一次性 Kconfig 修复（`build.yml` 内联）：**
 
 1. 从 `feeds.conf*` 删除 kenzo/small，并 `rm -rf feeds/{kenzo,small}`
 2. 按 `PKG_NAME:=nftables-json` 删除重复包（修复自引用环）
-3. `patch-src-kconfig.sh` — dnsmasq 去掉 nftset→nftables-json；删除 feeds 里重复的 `kmod-nft-fullcone`（保留 `package/nft-fullcone`）
-4. TurboACC：**clone `luci-app-turboacc` + `nft-fullcone`**；重复副本清理逻辑已内置到 `ci-fix-kconfig-tree.sh`，`verify-defconfig.sh` 在 base `make defconfig` 前内联暂存 TurboACC 包，defconfig 后恢复并由 `ci-enable-turboacc.sh` 启用。
+3. dnsmasq 去掉 nftset→nftables-json；删除 feeds 里重复的 `kmod-nft-fullcone`（保留 `package/nft-fullcone`）
+4. TurboACC：**clone `luci-app-turboacc` + `nft-fullcone`**；workflow 在 base `make defconfig` 前暂存 TurboACC 包，defconfig 后恢复并启用。
 5. `sanitize-config.sh` — `.config` 守卫项（dnsmasq / nftables / 合并阶段 TurboACC）
 6. `patch-feeds.sh` **不得**删除 `feeds/luci/luci-ssl`（`common.config` 需要 `luci-ssl`）；仅清理 kenzo/small 里的重复 `luci-ssl`
-7. Actions cache key：`feeds-*-kconfig-fix-v3-*` / `dl-*-kconfig-fix-v3-*`
-8. workflow：cache 恢复后、setup 前后、`defconfig` 前各跑一次 `ci-fix-kconfig-tree.sh`
+7. Actions cache key：`feeds-*-kconfig-fix-v5-*` / `dl-*-kconfig-fix-v5-*`
+8. workflow：cache 恢复后、setup 后都执行内联 scrub
 
-`verify-defconfig`：日志里出现任意 `recursive dependency detected` 即失败（不再 WARN 放过）。
+workflow 内联 defconfig 校验：日志里出现任意 `recursive dependency detected` 即失败（不再 WARN 放过）。
 
 ## LuCI 简体中文
 

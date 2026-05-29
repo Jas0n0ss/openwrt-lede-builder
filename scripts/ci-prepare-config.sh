@@ -52,8 +52,6 @@ done
 echo "CONFIG_DEVEL=y" >> .config
 echo "CONFIG_CCACHE=y" >> .config
 
-bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/sanitize-config.sh" "$(pwd)"
-bash "${WORKSPACE}/scripts/verify-defconfig.sh" "$(pwd)" "$WORKSPACE"
 
-echo "==> .config ready: ${REPO}/${DEVICE} (device + common + custom-plugins)"
+echo "==> .config merged and sanitized: ${REPO}/${DEVICE}"
