@@ -84,6 +84,7 @@ done < <(find feeds -name '*fchomo*' -type d 2>/dev/null || true)
 echo "==> Installing base feed packages (optional failures ignored)"
 BASE_PACKAGES=(
   maccalc wireless-regdb iw
+  luci-i18n-passwall-zh-cn luci-i18n-opkg-zh-cn luci-i18n-ttyd-zh-cn luci-i18n-arpbind-zh-cn
   kmod-mt7615-firmware kmod-mt7915-firmware
   pcre2 libpcre2 libpcre2-8 libxml2 libunistring
   libev libsodium c-ares libcurl libudns

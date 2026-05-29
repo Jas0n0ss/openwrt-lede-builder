@@ -43,6 +43,7 @@ cat "$CUSTOM" >> .config
 # 4) Small policy snippets only (no dnsmasq-full, no turboacc INCLUDE)
 for snip in \
   "${WORKSPACE}/configs/snippets/wireless-core.config" \
+  "${WORKSPACE}/configs/snippets/luci-zh-cn.config" \
   "${WORKSPACE}/configs/snippets/no-rust-passwall.config" \
   "${WORKSPACE}/configs/snippets/no-selinux.config"; do
   [ -f "$snip" ] && cat "$snip" >> .config
