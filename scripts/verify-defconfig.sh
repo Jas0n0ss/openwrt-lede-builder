@@ -21,7 +21,14 @@ bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
 }
 
 log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+restored_turboacc=0
+cleanup() {
+  rm -f "$log"
+  if [ "$restored_turboacc" -eq 0 ]; then
+    bash "${SCRIPT_DIR}/ci-turboacc-stash.sh" "$(pwd)" unhide >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
 
 echo "==> verify-defconfig: base make defconfig (TurboACC packages stashed)"
 set +e
@@ -42,6 +49,7 @@ if grep -q 'recursive dependency detected' "$log"; then
 fi
 
 bash "${SCRIPT_DIR}/ci-turboacc-stash.sh" "$(pwd)" unhide
+restored_turboacc=1
 bash "${SCRIPT_DIR}/purge-turboacc-duplicates.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/patch-turboacc-packages.sh" "$(pwd)"
 bash "${SCRIPT_DIR}/ci-fix-kconfig-tree.sh" "$(pwd)"

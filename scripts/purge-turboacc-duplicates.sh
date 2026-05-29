@@ -17,6 +17,12 @@ remove_dir() {
   local dir="$1" keep="$2"
   [ -n "$dir" ] || return 0
   [ -d "$dir" ] || return 0
+  case "$dir" in
+    package/luci-app-turboacc|./package/luci-app-turboacc|package/nft-fullcone|./package/nft-fullcone)
+      # Never delete canonical custom package dirs.
+      return 0
+      ;;
+  esac
   local abs
   abs="$(cd "$dir" && pwd)"
   if [ -n "$keep" ] && [ "$abs" = "$keep" ]; then
@@ -37,7 +43,7 @@ purge_makefiles() {
     esac
     dir="$(dirname "$mk")"
     remove_dir "$dir" "$keep"
-  done < <(grep -Rl --include='Makefile' "$pattern" feeds package/feeds package/lean package 2>/dev/null || true)
+  done < <(grep -Rl --include='Makefile' "$pattern" feeds package/feeds package/lean 2>/dev/null || true)
 }
 
 purge_makefiles 'PKG_NAME:=luci-app-turboacc' "$KEEP_LUCI"
