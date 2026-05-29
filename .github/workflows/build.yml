@@ -85,7 +85,9 @@ jobs:
           LIST="configs/devices.list"
           [ -f "$LIST" ] || { echo "ERROR: missing $LIST" >&2; exit 1; }
 
-          mapfile -t ALL_DEVICES < <(sed 's/#.*//' "$LIST" | xargs -n1 echo | sed '/^$/d')
+          mapfile -t ALL_DEVICES < <(
+            sed 's/#.*//' "$LIST" | xargs -n1 echo | sed '/^$/d'
+          )
           if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$DEVICE" ] && [ "$DEVICE" != "all" ]; then
             selected=0
             for d in "${ALL_DEVICES[@]}"; do
@@ -94,7 +96,10 @@ jobs:
                 break
               fi
             done
-            [ "$selected" -eq 1 ] || { echo "ERROR: unknown device '${DEVICE}'" >&2; exit 1; }
+            [ "$selected" -eq 1 ] || {
+              echo "ERROR: unknown device '${DEVICE}'" >&2
+              exit 1
+            }
             echo "matrix={\"device\":[\"${DEVICE}\"]}" >> "$GITHUB_OUTPUT"
             CHECK_DEVICES=("$DEVICE")
           else
@@ -124,8 +129,14 @@ jobs:
           # Device package validation (selected source only)
           for dev in "${CHECK_DEVICES[@]}"; do
             cfg="configs/${SOURCE}/${dev}.config"
-            grep -q '^CONFIG_TARGET_.*_DEVICE_.*=y' "$cfg" || { echo "ERROR: $cfg missing CONFIG_TARGET_*_DEVICE_*=y" >&2; exit 1; }
-            grep -q '^CONFIG_PACKAGE_wpad-openssl=y' "$cfg" || { echo "ERROR: $cfg missing CONFIG_PACKAGE_wpad-openssl=y" >&2; exit 1; }
+            grep -q '^CONFIG_TARGET_.*_DEVICE_.*=y' "$cfg" || {
+              echo "ERROR: $cfg missing CONFIG_TARGET_*_DEVICE_*=y" >&2
+              exit 1
+            }
+            grep -q '^CONFIG_PACKAGE_wpad-openssl=y' "$cfg" || {
+              echo "ERROR: $cfg missing CONFIG_PACKAGE_wpad-openssl=y" >&2
+              exit 1
+            }
             if grep -qE '^CONFIG_PACKAGE_dnsmasq-full=y|^CONFIG_PACKAGE_nftables-json=y|^CONFIG_PACKAGE_luci-app-turboacc=y|^CONFIG_PACKAGE_kmod-nft-fullcone=y' "$cfg"; then
               echo "ERROR: $cfg contains forbidden pre-enable package symbol" >&2
               exit 1
@@ -337,15 +348,15 @@ jobs:
             -e '/^# CONFIG_PACKAGE_luci-app-turboacc/d' \
             -e '/^CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_/d' \
             .config
-          cat >> .config <<'EOF'
-
-# --- Kconfig cycle guards (dnsmasq / duplicate nftables only) ---
-# CONFIG_PACKAGE_dnsmasq-full is not set
-# CONFIG_PACKAGE_dnsmasq_full_nftset is not set
-# CONFIG_PACKAGE_dnsmasq_full_dhcp is not set
-# CONFIG_PACKAGE_nftables-json is not set
-# CONFIG_PACKAGE_nftables-nojson is not set
-EOF
+          {
+            echo
+            echo "# --- Kconfig cycle guards (dnsmasq / duplicate nftables only) ---"
+            echo "# CONFIG_PACKAGE_dnsmasq-full is not set"
+            echo "# CONFIG_PACKAGE_dnsmasq_full_nftset is not set"
+            echo "# CONFIG_PACKAGE_dnsmasq_full_dhcp is not set"
+            echo "# CONFIG_PACKAGE_nftables-json is not set"
+            echo "# CONFIG_PACKAGE_nftables-nojson is not set"
+          } >> .config
           echo "==> .config merged and sanitized: ${REPO}/${{ matrix.device }}"
 
       - name: Defconfig and TurboACC (inline CI fix)
