@@ -32,7 +32,6 @@ while IFS= read -r dir; do
   esac
   rm -rf "$dir"
   echo "==> purged directory: ${dir}"
-done < <(find . -type d \( -name nftables-json -o -name nftables-nojson \) 2>/dev/null \
-  | grep -vE '^\./(dl|build_dir|staging_dir)/' || true)
+done < <(find feeds package/feeds -type d \( -name nftables-json -o -name nftables-nojson \) 2>/dev/null || true)
 
 echo "==> purge-broken-feed-packages: done"

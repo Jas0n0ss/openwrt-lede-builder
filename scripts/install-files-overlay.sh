@@ -33,4 +33,9 @@ fi
   exit 1
 }
 
+[ -f "${DEST}/etc/jas0n0ss-build-source" ] || {
+  echo "ERROR: overlay missing ${DEST}/etc/jas0n0ss-build-source (run generate-banner.sh first)" >&2
+  exit 1
+}
+
 echo "==> Installed files overlay: ${OVERLAY_SRC} -> ${DEST}"

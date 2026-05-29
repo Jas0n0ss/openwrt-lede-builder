@@ -28,6 +28,8 @@ sed -i \
   -e '/^# CONFIG_PACKAGE_dnsmasq_full_/d' \
   -e '/^# CONFIG_PACKAGE_nftables-json is not set$/d' \
   -e '/^# CONFIG_PACKAGE_nftables-nojson is not set$/d' \
+  -e '/^# CONFIG_PACKAGE_luci-app-turboacc/d' \
+  -e '/^CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_/d' \
   "$CFG"
 
 cat >>"$CFG" <<'EOF'

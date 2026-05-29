@@ -59,6 +59,12 @@ while IFS= read -r dev || [ -n "$dev" ]; do
     fail=1
   }
 
+  forbid_in "$cfg" \
+    '^CONFIG_PACKAGE_dnsmasq-full=y' \
+    '^CONFIG_PACKAGE_nftables-json=y' \
+    '^CONFIG_PACKAGE_luci-app-turboacc=y' \
+    '^CONFIG_PACKAGE_kmod-nft-fullcone=y' || fail=1
+
   case "$dev" in
     phicomm-k2p)
       if [ "$REPO" = "lede" ]; then
@@ -79,7 +85,6 @@ while IFS= read -r dev || [ -n "$dev" ]; do
       fi
       ;;
     xiaomi-wr30u|xiaomi-ax6000|redmi-ax6000)
-      # turboacc enabled in ci-enable-turboacc.sh, not in device .config
       require_in "$cfg" \
         '^CONFIG_PACKAGE_kmod-mt7915e=y' \
         '^CONFIG_PACKAGE_.*-firmware=y' \

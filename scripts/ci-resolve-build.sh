@@ -31,4 +31,5 @@ else
 fi
 
 bash "${SCRIPT_DIR}/ci-validate-configs.sh" "$SOURCE" "$DEVICE"
+bash "${SCRIPT_DIR}/ci-validate-policy-configs.sh"
 bash "${SCRIPT_DIR}/ci-validate-device-packages.sh" "$SOURCE"

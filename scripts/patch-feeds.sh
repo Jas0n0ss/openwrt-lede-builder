@@ -43,7 +43,6 @@ patch_passwall_go_packages() {
 strip_conflicting_feed_dirs() {
   local names=(
     luci-app-unblockneteasemusic
-    luci-ssl
     nftables-json
     nftables-nojson
   )
@@ -53,10 +52,23 @@ strip_conflicting_feed_dirs() {
       [ -n "$dir" ] || continue
       rm -rf "$dir"
       echo "==> Removed conflicting feed package: ${dir}"
-    done < <(find . -type d -name "$name" 2>/dev/null \
-      | grep -vE '^\./(dl|build_dir|staging_dir)/' || true)
+    done < <(find feeds package/feeds -type d -name "$name" 2>/dev/null || true)
+  done
+}
+
+# luci-ssl stays in feeds/luci; only remove stale kenzo/small duplicates (Kconfig cycle)
+strip_luci_ssl_dupes() {
+  local feed dir
+  for feed in feeds/kenzo feeds/small package/feeds/kenzo package/feeds/small; do
+    [ -d "$feed" ] || continue
+    while IFS= read -r dir; do
+      [ -n "$dir" ] || continue
+      rm -rf "$dir"
+      echo "==> Removed stale luci-ssl: ${dir}"
+    done < <(find "$feed" -type d -name luci-ssl 2>/dev/null || true)
   done
 }
 
 patch_passwall_go_packages
 strip_conflicting_feed_dirs
+strip_luci_ssl_dupes

@@ -68,11 +68,18 @@ for sym in luci-app-turboacc kmod-nft-fullcone kmod-tcp-bbr; do
   }
 done
 
-grep -q '^# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING is not set' .config \
-  || grep -q '^CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING is not set' .config \
-  || {
-    echo "ERROR: TurboACC OFFLOADING must stay disabled" >&2
+for sym in \
+  luci-app-turboacc_INCLUDE_BBR_CCA \
+  luci-app-turboacc_INCLUDE_NFT_FULLCONE; do
+  grep -q "^CONFIG_PACKAGE_${sym}=y" .config || {
+    echo "ERROR: CONFIG_PACKAGE_${sym}=y missing after TurboACC enable" >&2
     exit 1
   }
+done
+
+if grep -q '^CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y' .config; then
+  echo "ERROR: TurboACC OFFLOADING must stay disabled" >&2
+  exit 1
+fi
 
 echo "==> ci-enable-turboacc: OK (luci-app-turboacc + kmod-nft-fullcone + kmod-tcp-bbr)"

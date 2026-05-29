@@ -32,6 +32,11 @@ if [ ! -f feeds/passwall_luci/luci-app-passwall/Makefile ] \
   fail "luci-app-passwall not installed from passwall_luci feed"
 fi
 
+if [ ! -f feeds/luci/luci-ssl/Makefile ] \
+  && [ ! -f package/feeds/luci/luci-ssl/Makefile ]; then
+  fail "luci-ssl missing (patch-feeds must not remove feeds/luci/luci-ssl)"
+fi
+
 if [ "$MODE" = "full" ]; then
   for pkg in luci-app-mosdns luci-app-turboacc luci-theme-aurora luci-app-arpbind; do
     [ -f "package/${pkg}/Makefile" ] || fail "missing custom package/${pkg}/Makefile"
